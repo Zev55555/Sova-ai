@@ -82,7 +82,7 @@ def execute_basic_analysis(request: ExecuteAnalysisRequest) -> ExecuteAnalysisRe
 
     try:
         registered_tables = _register_uploaded_files(connection, uploaded_files)
-        result_tables = _run_fixed_analyses(connection, registered_tables, limitations)
+        result_tables = _run_fixed_analyses(connection, registered_tables, limitations, request)
     except HTTPException:
         raise
     except Exception as error:
@@ -95,6 +95,7 @@ def execute_basic_analysis(request: ExecuteAnalysisRequest) -> ExecuteAnalysisRe
 
     analysis_notes = [
         "当前结果为规则版基础分析，后续可接入更复杂的 SQL 生成和证据链总结。",
+        "基础分析用于探索记录数和通用分布；指标结论请优先参考上方“指标计算结果”。",
         "本阶段只返回结果表，不生成图表、证据链或报告。",
     ]
 
@@ -157,8 +158,10 @@ def _run_fixed_analyses(
     connection: duckdb.DuckDBPyConnection,
     registered_tables: list[RegisteredTable],
     limitations: list[str],
+    request: ExecuteAnalysisRequest,
 ) -> list[ResultTable]:
     result_tables: list[ResultTable] = [_overview_table(registered_tables)]
+    context_text = _analysis_context_text(request)
 
     trend_table = _first_table_with_field(registered_tables, "time")
     if trend_table:
@@ -169,7 +172,7 @@ def _run_fixed_analyses(
     user_table = _first_table_with_field(registered_tables, "user")
     if user_table:
         result_tables.append(_user_breakdown(connection, user_table))
-    else:
+    elif _needs_user_analysis(context_text):
         limitations.append("缺少用户字段，暂时无法执行用户维度分析。")
 
     region_table = _first_table_with_field(registered_tables, "region")
@@ -178,22 +181,22 @@ def _run_fixed_analyses(
     else:
         limitations.append("缺少城市或地区字段，暂时无法执行地区 / 城市分析。")
 
-    channel_table = _first_table_with_field(registered_tables, "channel")
-    if channel_table:
-        result_tables.append(_channel_breakdown(connection, channel_table))
-    else:
+    channel_spec = _channel_analysis_spec(registered_tables, context_text)
+    if channel_spec:
+        result_tables.append(_channel_breakdown(connection, *channel_spec))
+    elif _needs_channel_analysis(context_text):
         limitations.append("缺少渠道来源字段，暂时无法执行渠道分析。")
 
     amount_table = _first_table_with_field(registered_tables, "amount")
-    if amount_table:
+    if amount_table and _is_commerce_context(context_text):
         result_tables.append(_amount_summary(connection, amount_table))
-    else:
+    elif _is_commerce_context(context_text):
         limitations.append("缺少金额字段，暂时无法执行金额分析。")
 
     coupon_table = _first_table_with_field(registered_tables, "coupon")
-    if coupon_table:
+    if coupon_table and _is_coupon_context(context_text):
         result_tables.append(_coupon_summary(connection, coupon_table))
-    else:
+    elif _is_coupon_context(context_text):
         limitations.append("缺少优惠券相关字段，暂时无法执行优惠券相关分析。")
 
     return result_tables
@@ -322,11 +325,14 @@ def _region_breakdown(
 def _channel_breakdown(
     connection: duckdb.DuckDBPyConnection,
     table: RegisteredTable,
+    channel_field: str,
+    title: str,
+    description: str,
+    value_label: str,
 ) -> ResultTable:
-    channel_field = _find_field(table.dataframe.columns, "channel")
     amount_field = _find_field(table.dataframe.columns, "amount")
     select_parts = [
-        f"COALESCE(CAST({_quote_identifier(channel_field)} AS VARCHAR), '空值') AS 渠道",
+        f"COALESCE(CAST({_quote_identifier(channel_field)} AS VARCHAR), '空值') AS {_quote_identifier(value_label)}",
         "COUNT(*) AS 记录数",
     ]
     if amount_field:
@@ -342,8 +348,8 @@ def _channel_breakdown(
     return _query_table(
         connection,
         "channel_breakdown",
-        "渠道分析",
-        "按渠道来源聚合记录数，并在字段可用时补充金额总和。",
+        title,
+        description,
         query,
     )
 
@@ -416,6 +422,116 @@ def _coupon_summary(
     )
 
 
+def _channel_analysis_spec(
+    registered_tables: list[RegisteredTable],
+    context_text: str,
+) -> tuple[RegisteredTable, str, str, str, str] | None:
+    checks: list[tuple[list[str], list[str], str, str, str]] = []
+    if _is_game_context(context_text):
+        checks.append(
+            (
+                ["map_channel", "map", "地图"],
+                ["map_channel", "map"],
+                "地图拆解",
+                "按地图聚合记录数，用于避免把游戏地图字段误展示为渠道分析。",
+                "地图",
+            )
+        )
+    if _is_saas_context(context_text):
+        checks.append(
+            (
+                ["signup_channel", "acquisition_channel", "注册来源", "获客渠道"],
+                ["signup_channel", "acquisition_channel"],
+                "注册来源渠道分析",
+                "按注册来源或获客渠道聚合记录数，用于观察新用户来源结构。",
+                "注册来源渠道",
+            )
+        )
+    if _is_support_context(context_text):
+        checks.append(
+            (
+                ["support_channel", "客服渠道", "支持渠道"],
+                ["support_channel"],
+                "支持渠道分析",
+                "按客服支持渠道聚合记录数，用于观察不同支持入口的结构分布。",
+                "支持渠道",
+            )
+        )
+    if _is_commerce_context(context_text) or _needs_channel_analysis(context_text):
+        checks.append(
+            (
+                ["channel", "source", "utm_source", "campaign_source", "渠道", "来源"],
+                [],
+                "渠道分析",
+                "按渠道来源聚合记录数，并在字段可用时补充金额总和。",
+                "渠道",
+            )
+        )
+
+    for keywords, excluded_keywords, title, description, value_label in checks:
+        for table in registered_tables:
+            field = _find_field(table.dataframe.columns, keywords)
+            if not field:
+                continue
+            normalized_field = _normalize_text(field)
+            if excluded_keywords and not any(
+                keyword in normalized_field for keyword in [_normalize_text(item) for item in excluded_keywords]
+            ):
+                continue
+            return table, field, title, description, value_label
+
+    return None
+
+
+def _analysis_context_text(request: ExecuteAnalysisRequest) -> str:
+    parts = [
+        request.business_problem,
+        request.metric_definition or "",
+        request.comparison_period or "",
+        " ".join(request.dimensions),
+        " ".join(request.change_factors),
+    ]
+    metric_summary = request.analysis_plan.get("metric_summary")
+    if isinstance(metric_summary, dict):
+        parts.extend(str(value) for value in metric_summary.values())
+    return " ".join(parts).lower()
+
+
+def _is_game_context(text: str) -> bool:
+    return _has_text_any(text, ["游戏", "valorant", "胜率", "对局", "地图", "排位"])
+
+
+def _is_saas_context(text: str) -> bool:
+    return _has_text_any(text, ["saas", "激活", "新注册", "新用户", "onboarding", "核心配置", "试用"])
+
+
+def _is_support_context(text: str) -> bool:
+    return _has_text_any(text, ["客服", "工单", "sla", "支持渠道", "support"])
+
+
+def _is_commerce_context(text: str) -> bool:
+    return _has_text_any(text, ["电商", "订单", "退款", "交易", "商品", "商家", "gmv", "金额", "销售额"])
+
+
+def _is_coupon_context(text: str) -> bool:
+    return _has_text_any(text, ["优惠券", "核销", "coupon"])
+
+
+def _needs_user_analysis(text: str) -> bool:
+    return _has_text_any(text, ["用户维度", "用户类型", "用户分层", "新老用户", "会员", "用户字段"])
+
+
+def _needs_channel_analysis(text: str) -> bool:
+    if _is_game_context(text):
+        return False
+    return _has_text_any(text, ["渠道", "来源", "投放", "获客", "support_channel", "signup_channel"])
+
+
+def _has_text_any(text: str, keywords: list[str]) -> bool:
+    normalized = str(text or "").lower()
+    return any(keyword.lower() in normalized for keyword in keywords)
+
+
 def _query_table(
     connection: duckdb.DuckDBPyConnection,
     table_id: str,
@@ -447,8 +563,8 @@ def _first_table_with_field(
     return None
 
 
-def _find_field(columns, field_type: str) -> str | None:
-    keywords = KEYWORDS[field_type]
+def _find_field(columns, field_type: str | list[str]) -> str | None:
+    keywords = KEYWORDS[field_type] if isinstance(field_type, str) else field_type
     for column in columns:
         normalized_column = _normalize_text(str(column))
         if any(_normalize_text(keyword) in normalized_column for keyword in keywords):

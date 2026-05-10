@@ -6,6 +6,7 @@ import { formatReportDraft, type ReportDraft } from "@/lib/report-draft";
 type ReportDraftSectionProps = {
   reportDraft: ReportDraft | null;
   reportError: string;
+  reportNotice: string;
   isGeneratingReport: boolean;
   onGenerateReport: () => void;
 };
@@ -13,6 +14,7 @@ type ReportDraftSectionProps = {
 export function ReportDraftSection({
   reportDraft,
   reportError,
+  reportNotice,
   isGeneratingReport,
   onGenerateReport,
 }: ReportDraftSectionProps) {
@@ -50,13 +52,19 @@ export function ReportDraftSection({
           onClick={onGenerateReport}
           type="button"
         >
-          {isGeneratingReport ? "正在生成报告草稿" : "生成报告草稿"}
+          {isGeneratingReport ? "正在生成报告草稿……" : "生成报告草稿"}
         </button>
       </div>
 
       <p className="mt-4 rounded-md border border-ink/10 bg-surface/70 px-4 py-3 text-sm leading-6 text-ink/62">
-        当前报告为规则版草稿，适合用于整理分析思路。后续可接入真实 LLM 提升表达质量。
+        当前报告为可编辑草稿，适合用于整理分析思路。请结合业务背景和更多数据继续校正。
       </p>
+
+      {reportNotice ? (
+        <p className="mt-4 rounded-md border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-medium text-accent">
+          {reportNotice}
+        </p>
+      ) : null}
 
       {reportError ? (
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">

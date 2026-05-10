@@ -13,6 +13,7 @@ export type ClarificationState = {
   comparisonPeriod: string | null;
   dimensions: string[];
   changeFactors: string[];
+  analysisTarget?: string;
   customMetricDefinition?: string;
   customComparisonPeriod?: string;
   customDimensions?: string[];
@@ -33,6 +34,7 @@ export const initialClarificationState: ClarificationState = {
   comparisonPeriod: null,
   dimensions: [],
   changeFactors: [],
+  analysisTarget: "",
   customMetricDefinition: "",
   customComparisonPeriod: "",
   customDimensions: [],
@@ -64,7 +66,9 @@ export function evaluateReadinessLocally(
   }
 
   const metricDefinitionResult = generateMetricDefinitions(state.businessProblem);
-  const confirmedInfo = [`分析目标：${metricDefinitionResult.analysisTarget}`];
+  const confirmedInfo = [
+    `分析目标：${state.analysisTarget || metricDefinitionResult.analysisTarget}`,
+  ];
   const metricDefinition = state.metricDefinition?.trim();
   const comparisonPeriod = state.comparisonPeriod?.trim();
   const dimensions = state.dimensions.filter(Boolean);
@@ -125,7 +129,7 @@ export function evaluateReadinessLocally(
         "分析维度已确认，下一步需要确认近期是否存在可能影响指标的业务变化。",
       confirmed_info: confirmedInfo,
       missing_info: ["近期变化因素", "数据需求"],
-      next_question: "这段时间是否存在活动、投放、版本更新或 A/B 实验等变化？",
+      next_question: "这段时间是否存在你认为可能影响指标的业务、产品、环境或外部变化？",
     };
   }
 
@@ -170,8 +174,9 @@ export async function evaluateReadiness(
 function toBackendPayload(state: ClarificationState) {
   return {
     business_problem: state.businessProblem,
-    analysis_target: generateMetricDefinitions(state.businessProblem)
-      .analysisTarget,
+    analysis_target:
+      state.analysisTarget ||
+      generateMetricDefinitions(state.businessProblem).analysisTarget,
     metric_definition: state.metricDefinition,
     comparison_period: state.comparisonPeriod,
     dimensions: state.dimensions,

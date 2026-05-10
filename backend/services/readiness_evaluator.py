@@ -116,7 +116,7 @@ def evaluate_readiness(request: ReadinessRequest) -> ReadinessResponse:
             status_text="分析维度已确认，下一步需要确认近期是否存在可能影响指标的业务变化。",
             confirmed_info=confirmed_info,
             missing_info=["近期变化因素", "数据需求"],
-            next_question="这段时间是否存在活动、投放、版本更新或 A/B 实验等变化？",
+            next_question="这段时间是否存在你认为可能影响指标的业务、产品、环境或外部变化？",
         )
 
     confirmed_info.append(f"近期变化因素：{'、'.join(change_factors)}")

@@ -6,6 +6,7 @@ import type { EvidenceResult } from "@/lib/evidence-chain";
 type EvidenceChainSectionProps = {
   evidenceResult: EvidenceResult | null;
   evidenceError: string;
+  evidenceNotice: string;
   isGeneratingEvidence: boolean;
   onGenerateEvidence: () => void;
 };
@@ -28,6 +29,7 @@ const tableLabelMap: Record<string, string> = {
 export function EvidenceChainSection({
   evidenceResult,
   evidenceError,
+  evidenceNotice,
   isGeneratingEvidence,
   onGenerateEvidence,
 }: EvidenceChainSectionProps) {
@@ -46,9 +48,15 @@ export function EvidenceChainSection({
           onClick={onGenerateEvidence}
           type="button"
         >
-          {isGeneratingEvidence ? "正在生成证据链" : "生成证据链"}
+          {isGeneratingEvidence ? "正在生成证据链……" : "生成证据链"}
         </button>
       </div>
+
+      {evidenceNotice ? (
+        <p className="mt-4 rounded-md border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-medium text-accent">
+          {evidenceNotice}
+        </p>
+      ) : null}
 
       {evidenceError ? (
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">

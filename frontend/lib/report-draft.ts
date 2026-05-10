@@ -1,6 +1,7 @@
 import type { AnalysisExecutionResult } from "@/lib/analysis-execution";
 import type { AnalysisPlan } from "@/lib/analysis-plan";
 import type { EvidenceResult } from "@/lib/evidence-chain";
+import type { MetricSpecExecutionResult } from "@/lib/metric-spec-execution";
 
 export type ReportSection = {
   heading: string;
@@ -20,7 +21,8 @@ export type ReportDraftInput = {
   dimensions: string[];
   changeFactors: string[];
   analysisPlan: AnalysisPlan;
-  executionResult: AnalysisExecutionResult;
+  executionResult: AnalysisExecutionResult | null;
+  metricExecutionResult?: MetricSpecExecutionResult | null;
   evidenceResult: EvidenceResult;
 };
 
@@ -42,7 +44,8 @@ export async function generateReportDraft(
       dimensions: input.dimensions,
       change_factors: input.changeFactors,
       analysis_plan: input.analysisPlan,
-      execution_result: input.executionResult,
+      execution_result: input.executionResult ?? {},
+      metric_execution_result: input.metricExecutionResult ?? null,
       evidence_result: input.evidenceResult,
     }),
   });

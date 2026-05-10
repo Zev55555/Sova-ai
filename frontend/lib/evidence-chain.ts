@@ -1,5 +1,6 @@
 import type { AnalysisExecutionResult } from "@/lib/analysis-execution";
 import type { AnalysisPlan } from "@/lib/analysis-plan";
+import type { MetricSpecExecutionResult } from "@/lib/metric-spec-execution";
 
 export type ConfidenceLevel = "高" | "中" | "低";
 
@@ -27,7 +28,8 @@ export type EvidenceInput = {
   dimensions: string[];
   changeFactors: string[];
   analysisPlan: AnalysisPlan;
-  executionResult: AnalysisExecutionResult;
+  executionResult: AnalysisExecutionResult | null;
+  metricExecutionResult?: MetricSpecExecutionResult | null;
 };
 
 export async function generateEvidenceChain(
@@ -48,7 +50,8 @@ export async function generateEvidenceChain(
       dimensions: input.dimensions,
       change_factors: input.changeFactors,
       analysis_plan: input.analysisPlan,
-      execution_result: input.executionResult,
+      execution_result: input.executionResult ?? {},
+      metric_execution_result: input.metricExecutionResult ?? null,
     }),
   });
 

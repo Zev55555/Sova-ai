@@ -64,6 +64,16 @@ FIELD_RULES = [
             "visit",
             "conversion",
             "refund",
+            "is_refunded",
+            "is_delayed",
+            "result_win",
+            "is_sla_breached",
+            "submitted_on_time",
+            "activated_within_7d",
+            "breach",
+            "delayed",
+            "win",
+            "activated",
             "指标",
             "金额",
             "销售额",
@@ -135,6 +145,7 @@ def generate_analysis_plan(request: AnalysisPlanRequest) -> AnalysisPlanResponse
     mapping_by_need = {item.analysis_need: item for item in field_mapping}
     analysis_steps = _build_analysis_steps(request, mapping_by_need)
     limitations = _build_limitations(
+        request,
         request.uploaded_schema,
         field_mapping,
         analysis_steps,
@@ -181,7 +192,10 @@ def _build_field_mapping(
     ]
 
     for dimension in custom_dimensions:
-        matched_field = _find_field(clean_columns, [_normalize_text(dimension), dimension])
+        matched_field = _find_field(
+            clean_columns,
+            _dimension_keywords(dimension),
+        )
         mappings.append(
             FieldMapping(
                 analysis_need=f"{dimension}字段",
@@ -346,21 +360,28 @@ def _build_step(
 
 
 def _build_limitations(
+    request: AnalysisPlanRequest,
     uploaded_schema: dict,
     field_mapping: list[FieldMapping],
     analysis_steps: list[AnalysisStep],
 ) -> list[str]:
     limitations = list(uploaded_schema.get("missing_requirements", []))
+    matched_semantic_text = _matched_semantic_dimension_text(uploaded_schema)
+    context_text = _analysis_request_text(request)
 
     for mapping in field_mapping:
-        if mapping.status == "missing" and mapping.analysis_need in {
+        if (
+            mapping.status == "missing"
+            and mapping.analysis_need in {
             "时间字段",
             "指标相关字段",
             "用户类型字段",
             "城市 / 地区字段",
             "渠道字段",
             "商家 / 商品字段",
-        }:
+            }
+            and _analysis_need_is_relevant(mapping.analysis_need, context_text)
+        ):
             limitations.append(mapping.note)
 
     for step in analysis_steps:
@@ -370,6 +391,12 @@ def _build_limitations(
             limitations.append(f"“{step.title}”仅部分字段就绪，后续需要谨慎解释结果。")
 
     unique_limitations = _deduplicate(limitations)
+    if matched_semantic_text:
+        unique_limitations = [
+            item
+            for item in unique_limitations
+            if not _limitation_is_already_supported(item, matched_semantic_text)
+        ]
     if unique_limitations:
         return unique_limitations
 
@@ -393,6 +420,87 @@ def _find_field(clean_columns: list[str], keywords: list[str]) -> str | None:
             return column
 
     return None
+
+
+def _dimension_keywords(dimension: str) -> list[str]:
+    normalized = _normalize_text(dimension)
+    keywords = [normalized, dimension]
+    groups = [
+        (["排队类型", "队列类型"], ["queue_type", "party_type", "queue", "party"]),
+        (["处理团队", "客服团队"], ["agent_team", "support_team", "assigned_team", "agent_group", "team_name"]),
+        (["用户所属行业", "行业"], ["industry"]),
+        (["公司规模"], ["company_size"]),
+        (["套餐类型"], ["plan_type"]),
+        (["注册来源", "获客渠道"], ["signup_channel", "acquisition_channel"]),
+    ]
+    for labels, fields in groups:
+        if any(label in dimension for label in labels):
+            keywords.extend(fields)
+    return keywords
+
+
+def _matched_semantic_dimension_text(uploaded_schema: dict) -> str:
+    semantic_context = uploaded_schema.get("semantic_context")
+    if not isinstance(semantic_context, dict):
+        return ""
+    field_roles = semantic_context.get("field_roles", [])
+    if not isinstance(field_roles, list):
+        return ""
+    parts: list[str] = []
+    for role in field_roles:
+        if not isinstance(role, dict) or role.get("role") != "dimension":
+            continue
+        parts.extend(
+            str(role.get(key, ""))
+            for key in ["field", "original_name", "semantic_label", "matched_user_need"]
+        )
+    return " ".join(parts).lower()
+
+
+def _limitation_is_already_supported(limitation: str, matched_semantic_text: str) -> bool:
+    text = limitation.lower()
+    checks = [
+        (["排队类型", "队列类型"], ["queue_type", "party_type"]),
+        (["处理团队", "客服团队"], ["agent_team", "support_team", "assigned_team", "agent_group", "team_name"]),
+        (["行业"], ["industry"]),
+        (["公司规模"], ["company_size"]),
+        (["套餐类型"], ["plan_type"]),
+    ]
+    return any(
+        any(label in text for label in labels)
+        and any(field in matched_semantic_text for field in fields)
+        for labels, fields in checks
+    )
+
+
+def _analysis_request_text(request: AnalysisPlanRequest) -> str:
+    return " ".join(
+        [
+            request.business_problem,
+            request.metric_definition or "",
+            request.comparison_period or "",
+            " ".join(request.dimensions),
+            " ".join(request.change_factors),
+        ]
+    ).lower()
+
+
+def _analysis_need_is_relevant(need: str, context_text: str) -> bool:
+    if need in {"时间字段", "指标相关字段"}:
+        return True
+    if need == "用户类型字段":
+        return _has_text_any(context_text, ["用户类型", "用户分层", "新老用户", "会员等级"])
+    if need == "城市 / 地区字段":
+        return _has_text_any(context_text, ["地区", "城市", "区域", "region", "city"])
+    if need == "渠道字段":
+        return _has_text_any(context_text, ["渠道", "来源", "投放", "获客", "注册来源", "支持渠道"])
+    if need == "商家 / 商品字段":
+        return _has_text_any(context_text, ["商家", "商品", "类目", "sku", "merchant", "category"])
+    return True
+
+
+def _has_text_any(text: str, keywords: list[str]) -> bool:
+    return any(keyword.lower() in text for keyword in keywords)
 
 
 def _normalize_text(value: str) -> str:
