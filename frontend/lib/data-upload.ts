@@ -92,7 +92,9 @@ export async function uploadDataFiles(
   files: File[],
   businessContext?: UploadBusinessContext,
 ): Promise<UploadResponse> {
-  const requestUrl = "http://127.0.0.1:8000/api/data/upload";
+  const apiBaseUrl =
+    process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const requestUrl = `${apiBaseUrl}/api/data/upload`;
   const pageOrigin =
     typeof window !== "undefined" ? window.location.origin : "未知页面来源";
   const validFiles = files.filter(isValidUploadFile);
