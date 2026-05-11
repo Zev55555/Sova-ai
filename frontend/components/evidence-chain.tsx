@@ -36,7 +36,7 @@ export function EvidenceChainSection({
   onGenerateEvidence,
 }: EvidenceChainSectionProps) {
   return (
-    <section className="mt-6 rounded-2xl border border-white/8 bg-panel/88 p-5">
+    <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d0f14]/90 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl transition-colors hover:border-cyan-300/16">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-medium text-accent">证据输出区</p>
@@ -86,7 +86,7 @@ export function EvidenceChainSection({
             <div className="space-y-4">
               {evidenceResult.evidence_chains.map((chain) => (
                 <article
-                  className="rounded-xl border border-white/8 bg-white/[0.04] p-5"
+                  className="rounded-[20px] border border-white/8 bg-white/[0.04] p-5 transition-colors hover:border-cyan-300/16"
                   key={chain.id}
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -173,7 +173,7 @@ function EvidenceBlock({
 }) {
   return (
     <section className="mt-4 text-sm leading-6 text-ink/66">
-      <h4 className="mb-2 text-sm font-semibold text-ink">{title}</h4>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/48">{title}</h4>
       {children}
     </section>
   );

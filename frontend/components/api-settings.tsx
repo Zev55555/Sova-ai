@@ -58,12 +58,15 @@ const storageOptions: Array<{
   },
 ];
 
-export function ApiSettings() {
+type ApiSettingsProps = {
+  variant?: "header" | "sidebar";
+};
+
+export function ApiSettings({ variant = "header" }: ApiSettingsProps) {
   const [isMounted, setIsMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<LlmSettings>(defaultLlmSettings);
   const [isConfigured, setIsConfigured] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testTone, setTestTone] = useState<"success" | "error" | "idle">("idle");
@@ -142,24 +145,38 @@ export function ApiSettings() {
     setTestTone("idle");
   }
 
-  return (
-    <div className="flex flex-col items-start gap-2 sm:items-end">
-      <span
-        className={`rounded-full border px-3 py-1 text-xs font-medium ${
-          isConfigured
-            ? "border-accent/25 bg-accent/10 text-accent"
-            : "border-white/12 bg-white/5 text-ink/56"
-        }`}
-      >
-        AI：{isConfigured ? "已配置" : "未配置"}
-      </span>
+  const trigger =
+    variant === "sidebar" ? (
       <button
-        className="min-h-10 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-ink/62 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+        className="flex w-full items-center justify-between rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-left text-sm font-medium text-ink/68 transition hover:border-accent/30 hover:bg-accent/8 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
         onClick={() => setIsOpen(true)}
         type="button"
       >
+        <span>AI 设置</span>
+        <span
+          className={`h-2 w-2 rounded-full ${
+            isConfigured ? "bg-accent" : "bg-ink/28"
+          }`}
+        />
+      </button>
+    ) : (
+      <button
+        className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-ink/66 transition hover:border-accent/32 hover:bg-accent/8 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+        onClick={() => setIsOpen(true)}
+        type="button"
+      >
+        <span
+          className={`h-2.5 w-2.5 rounded-full ${
+            isConfigured ? "bg-accent" : "bg-ink/28"
+          }`}
+        />
         API 设置
       </button>
+    );
+
+  return (
+    <>
+      {trigger}
 
       {isMounted && isOpen
         ? createPortal(
@@ -261,16 +278,12 @@ export function ApiSettings() {
                             clearTransientMessages();
                           }}
                           placeholder="请输入你的 API Key"
-                          type={showApiKey ? "text" : "password"}
+                          type="password"
                           value={settings.apiKey}
                         />
-                        <button
-                          className="rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18 sm:shrink-0"
-                          onClick={() => setShowApiKey((current) => !current)}
-                          type="button"
-                        >
-                          {showApiKey ? "隐藏" : "显示"}
-                        </button>
+                        <span className="rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm font-semibold text-ink/48 sm:shrink-0">
+                          已隐藏
+                        </span>
                       </div>
                     </FormField>
 
@@ -417,7 +430,7 @@ export function ApiSettings() {
             document.body,
           )
         : null}
-    </div>
+    </>
   );
 }
 

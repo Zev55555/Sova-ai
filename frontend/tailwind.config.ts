@@ -13,7 +13,7 @@ const config: Config = {
         panel: "#111318",
         surface: "#080a0f",
         line: "rgba(255,255,255,0.08)",
-        accent: "#22c59e",
+        accent: "#67e8f9",
         amber: "#c47a24",
       },
       boxShadow: {

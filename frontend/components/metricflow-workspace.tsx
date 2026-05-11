@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   evaluateReadiness,
   evaluateReadinessLocally,
@@ -143,11 +143,11 @@ const comparisonOptions: SingleOption[] = [
 const specialChangeFactorIds = ["none", "unknown"];
 
 const panelClassName =
-  "rounded-2xl border border-white/8 bg-panel/88 p-5 shadow-none backdrop-blur sm:p-6 lg:min-h-full";
+  "relative overflow-hidden rounded-[30px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.14),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(168,85,247,0.16),transparent_36%),linear-gradient(180deg,rgba(23,26,38,0.98),rgba(9,11,17,0.94))] p-6 shadow-[0_28px_100px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.055)] backdrop-blur-xl transition-colors before:pointer-events-none before:absolute before:inset-x-7 before:top-0 before:h-1 before:rounded-b-full before:bg-[linear-gradient(90deg,rgba(34,211,238,0.12),rgba(34,211,238,0.95),rgba(168,85,247,0.9),rgba(217,70,239,0.72),rgba(251,146,60,0.7),rgba(34,211,238,0.12))] before:shadow-[0_0_18px_rgba(103,232,249,0.18)] before:content-[''] hover:border-cyan-200/18 sm:p-8";
 const primaryButtonClassName =
-  "min-h-11 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/85 focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/40";
+  "min-h-12 rounded-full bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(124,58,237,0.92))] px-6 py-3 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(34,211,238,0.14)] transition hover:translate-y-[-1px] hover:shadow-[0_18px_42px_rgba(124,58,237,0.18)] focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/12 disabled:text-white/40 disabled:shadow-none";
 const secondaryButtonClassName =
-  "min-h-11 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/4 disabled:text-ink/34";
+  "min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/4 disabled:text-ink/34";
 
 const starterExamples: StarterExample[] = [
   {
@@ -227,6 +227,7 @@ export function MetricFlowWorkspace() {
   const [metricDefinitionNotice, setMetricDefinitionNotice] = useState("");
   const [activeStepId, setActiveStepId] =
     useState<WorkflowStepId>("business_problem");
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [taskFeedback, setTaskFeedback] =
     useState<AsyncTaskFeedback | null>(null);
   const [taskFeedbackNow, setTaskFeedbackNow] = useState(() => Date.now());
@@ -837,7 +838,7 @@ export function MetricFlowWorkspace() {
       setEvidenceResult(null);
       setReportDraft(null);
       completeTaskFeedback("metric_calculation");
-      setActiveStepId("evidence_chain");
+      setActiveStepId("metric_calculation");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "指标计算执行失败，请稍后重试。";
@@ -875,7 +876,7 @@ export function MetricFlowWorkspace() {
         changeFactors: clarificationState.changeFactors,
       });
       setAnalysisExecutionResult(nextExecutionResult);
-      setActiveStepId("evidence_chain");
+      setActiveStepId("metric_calculation");
     } catch (error) {
       setAnalysisExecutionError(
         error instanceof Error
@@ -941,7 +942,7 @@ export function MetricFlowWorkspace() {
           setEvidenceResult(llmEvidenceResult);
           setReportDraft(null);
           completeTaskFeedback("evidence_chain");
-          setActiveStepId("report_draft");
+          setActiveStepId("evidence_chain");
           setEvidenceNotice(
             llmEvidenceResult.source === "llm"
               ? metricSpecExecutionResult
@@ -957,7 +958,7 @@ export function MetricFlowWorkspace() {
           setEvidenceResult(localEvidenceResult);
           setReportDraft(null);
           completeTaskFeedback("evidence_chain");
-          setActiveStepId("report_draft");
+          setActiveStepId("evidence_chain");
           setEvidenceNotice(
             `AI 证据链生成失败：${reason}。已使用本地规则继续生成证据链。`,
           );
@@ -969,7 +970,7 @@ export function MetricFlowWorkspace() {
       setEvidenceResult(nextEvidenceResult);
       setReportDraft(null);
       completeTaskFeedback("evidence_chain");
-      setActiveStepId("report_draft");
+      setActiveStepId("evidence_chain");
       setEvidenceNotice(
         metricSpecExecutionResult
           ? "已使用指标计算结果生成证据链。"
@@ -1027,6 +1028,7 @@ export function MetricFlowWorkspace() {
           );
           setReportDraft(llmReportDraft);
           completeTaskFeedback("report_draft");
+          setActiveStepId("report_draft");
           setReportNotice(
             llmReportDraft.source === "llm"
               ? metricSpecExecutionResult
@@ -1041,6 +1043,7 @@ export function MetricFlowWorkspace() {
             error instanceof Error ? error.message : "LLM 接口调用失败";
           setReportDraft(localReportDraft);
           completeTaskFeedback("report_draft");
+          setActiveStepId("report_draft");
           setReportNotice(
             `AI 报告生成失败：${reason}。已使用本地规则继续生成报告草稿。`,
           );
@@ -1051,6 +1054,7 @@ export function MetricFlowWorkspace() {
       const nextReportDraft = await generateReportDraft(reportInput);
       setReportDraft(nextReportDraft);
       completeTaskFeedback("report_draft");
+      setActiveStepId("report_draft");
       setReportNotice(
         metricSpecExecutionResult
           ? "已使用指标计算结果生成报告草稿。"
@@ -1072,7 +1076,7 @@ export function MetricFlowWorkspace() {
     switch (activeWorkflowStep.id) {
       case "business_problem":
         return (
-          <section className={panelClassName}>
+          <section className={`${panelClassName} lg:min-h-[560px] lg:p-10`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-accent">Step 1</p>
@@ -1092,7 +1096,7 @@ export function MetricFlowWorkspace() {
                 业务问题
               </label>
               <textarea
-                className="min-h-44 w-full resize-none rounded-xl border border-white/10 bg-white/[0.04] p-5 text-base leading-7 text-ink outline-none transition focus:border-accent/60 focus:bg-white/[0.05] focus:ring-4 focus:ring-accent/12"
+                className="min-h-64 w-full resize-none rounded-[22px] border border-white/10 bg-white/[0.045] p-5 text-base leading-7 text-ink outline-none transition focus:border-accent/60 focus:bg-white/[0.06] focus:ring-4 focus:ring-accent/12"
                 id="business-problem"
                 onChange={(event) => {
                   setClarificationState((current) => ({
@@ -1127,12 +1131,6 @@ export function MetricFlowWorkspace() {
               </button>
             </div>
 
-            {!hasStarted ? (
-              <StarterExamples
-                examples={starterExamples}
-                onSelectExample={handleSelectStarterExample}
-              />
-            ) : null}
           </section>
         );
 
@@ -1432,6 +1430,15 @@ export function MetricFlowWorkspace() {
               usesMetricExecutionResult={Boolean(metricSpecExecutionResult)}
               onGenerateEvidence={handleGenerateEvidenceChain}
             />
+            {evidenceResult ? (
+              <ReportDraftSection
+                isGeneratingReport={isGeneratingReport}
+                onGenerateReport={handleGenerateReportDraft}
+                reportDraft={reportDraft}
+                reportError={reportError}
+                reportNotice={reportNotice}
+              />
+            ) : null}
             <TaskProgressCard
               feedback={getVisibleTaskFeedback("evidence_chain")}
               stepIndex={taskStepIndex}
@@ -1478,27 +1485,65 @@ export function MetricFlowWorkspace() {
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-      <div className="mx-auto flex min-h-[calc(100vh-1rem)] w-full max-w-[1500px] flex-col border-white/8 bg-[#080a0f] sm:min-h-[calc(100vh-2rem)] sm:rounded-[20px] sm:border lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:flex-row lg:overflow-hidden">
-        <WorkspaceSidebar />
-        <div className="min-w-0 flex-1 lg:flex lg:min-h-0 lg:flex-col">
-        <header className="shrink-0 border-b border-white/8 bg-[#080a0f]/92 px-4 py-3 backdrop-blur-xl sm:px-5 lg:h-[72px] lg:py-0">
-          <div className="flex h-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mx-auto grid min-h-[calc(100vh-1rem)] w-full max-w-[1600px] grid-cols-1 overflow-hidden border-white/8 bg-[#080a0f] sm:min-h-[calc(100vh-2rem)] sm:rounded-[24px] sm:border lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:grid-cols-[minmax(260px,24%)_minmax(0,1fr)]">
+        <WorkflowSidePanel
+          activeStep={activeWorkflowStep}
+          activeStepIndex={activeStepIndex}
+          clarificationState={clarificationState}
+          completedStepIds={completedWorkflowStepIds}
+          isGeneratingAnalysisPlan={isGeneratingAnalysisPlan}
+          isGeneratingEvidence={isGeneratingEvidence}
+          isGeneratingReport={isGeneratingReport}
+          isExecutingMetricSpec={isExecutingMetricSpec}
+          isUploading={isUploading}
+          metricExecutionResult={metricSpecExecutionResult}
+          panelReadiness={panelReadiness}
+          progress={workflowProgress}
+          steps={workflowSteps}
+          taskFeedback={taskFeedback}
+          taskStepIndex={taskStepIndex}
+          uploadResult={uploadResult}
+        />
+        <section className="min-w-0 bg-[#07090d] px-4 py-5 sm:px-6 lg:flex lg:min-h-0 lg:flex-col lg:px-8 lg:py-7">
+        <header className="shrink-0">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-accent">
+              <h1 className="text-3xl font-semibold tracking-normal text-ink sm:text-4xl">
+                SOVA AI
+              </h1>
+              <p className="mt-3 text-lg font-medium text-ink/70 sm:text-xl">
+                指标异动分析工作台
+              </p>
+              <p className="hidden">
                 AI 指标异动分析工作台
               </p>
-              <h1 className="mt-1 truncate text-lg font-semibold tracking-normal text-ink sm:text-xl">
+              <h1 className="hidden">
                 SOVA AI｜指标异动分析工作台
               </h1>
-              <p className="mt-1 hidden max-w-3xl truncate text-xs leading-5 text-ink/60 2xl:block">
+              <p className="hidden">
                 从模糊业务问题出发，自动澄清指标口径、执行指标计算，并生成证据链和报告草稿。
               </p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="hidden min-w-[280px] rounded-lg border border-white/8 bg-white/[0.04] px-3 py-2 text-sm text-ink/42 md:block lg:min-w-[340px]">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                className="inline-flex min-h-11 items-center rounded-full border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-ink/66 transition hover:border-accent/32 hover:bg-accent/8 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+                onClick={() => setIsGuideOpen(true)}
+                type="button"
+              >
+                使用说明
+              </button>
+              <a
+                className="inline-flex min-h-11 items-center rounded-full border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-ink/66 transition hover:border-accent/32 hover:bg-accent/8 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+                href="https://github.com/Zev55555/Sova-ai"
+                rel="noreferrer"
+                target="_blank"
+              >
+                GitHub
+              </a>
+              <div className="hidden">
                 Search analysis, files, reports...
               </div>
-              <span className="w-fit rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+              <span className="hidden">
                 Step {activeStepIndex + 1} / {workflowSteps.length}
               </span>
               <ApiSettings />
@@ -1506,9 +1551,9 @@ export function MetricFlowWorkspace() {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 lg:overflow-hidden">
-        <div className="grid w-full gap-0 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_380px]">
-          <section className="min-w-0 border-b border-white/8 p-4 sm:p-5 lg:flex lg:min-h-0 lg:flex-col lg:border-b-0">
+        <div className="mt-6 flex min-h-0 flex-1">
+        <div className="flex min-h-0 w-full">
+          <section className="min-w-0 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
             <WorkflowStepper
               activeStepId={activeWorkflowStep.id}
               completedStepIds={completedWorkflowStepIds}
@@ -1517,36 +1562,28 @@ export function MetricFlowWorkspace() {
             />
 
             <div
-              className="mx-auto mt-4 w-full max-w-[960px] transition-all duration-200 ease-out lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1"
+              className="mt-6 w-full space-y-4 transition-all duration-200 ease-out lg:mt-auto lg:min-h-0 lg:max-h-[calc(100vh-260px)] lg:overflow-y-auto lg:pr-1"
               key={activeWorkflowStep.id}
               style={{ animation: "workflowStepIn 180ms ease-out" }}
             >
               {renderWorkflowStep()}
+              <WorkflowProgressModule
+                activeStep={activeWorkflowStep}
+                activeStepIndex={activeStepIndex}
+                completedStepIds={completedWorkflowStepIds}
+                progress={workflowProgress}
+                steps={workflowSteps}
+              />
             </div>
           </section>
 
-          <WorkflowSidePanel
-            activeStep={activeWorkflowStep}
-            activeStepIndex={activeStepIndex}
-            clarificationState={clarificationState}
-            completedStepIds={completedWorkflowStepIds}
-            isGeneratingAnalysisPlan={isGeneratingAnalysisPlan}
-            isGeneratingEvidence={isGeneratingEvidence}
-            isGeneratingReport={isGeneratingReport}
-            isExecutingMetricSpec={isExecutingMetricSpec}
-            isUploading={isUploading}
-            metricExecutionResult={metricSpecExecutionResult}
-            panelReadiness={panelReadiness}
-            progress={workflowProgress}
-            steps={workflowSteps}
-            taskFeedback={taskFeedback}
-            taskStepIndex={taskStepIndex}
-            uploadResult={uploadResult}
-          />
         </div>
         </div>
-        </div>
+        </section>
       </div>
+      {isGuideOpen ? (
+        <UsageGuideDialog onClose={() => setIsGuideOpen(false)} />
+      ) : null}
     </main>
   );
 }
@@ -1761,43 +1798,169 @@ function WorkflowStepper({
   completedStepIds: WorkflowStepId[];
   onSelectStep: (stepId: WorkflowStepId) => void;
 }) {
-  return (
-    <nav className="rounded-2xl border border-white/8 bg-panel/78 p-2 shadow-none backdrop-blur">
-      <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {steps.map((step, index) => {
-          const isActive = step.id === activeStepId;
-          const isCompleted = completedStepIds.includes(step.id);
-          const isClickable = isActive || isCompleted;
+  const stepRows = [steps.slice(0, 5), steps.slice(5, 10)];
 
-          return (
-            <button
-              className={
-                isActive
-                    ? "flex min-w-28 items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-left text-xs font-semibold text-accent transition sm:min-w-32"
-                  : isCompleted
-                    ? "flex min-w-28 items-center gap-2 rounded-md border border-white/8 bg-white/[0.04] px-3 py-2 text-left text-xs font-semibold text-ink transition hover:border-accent/35 hover:text-accent sm:min-w-32"
-                    : "flex min-w-28 items-center gap-2 rounded-md border border-transparent bg-white/[0.02] px-3 py-2 text-left text-xs font-medium text-ink/36 sm:min-w-32"
-              }
-              disabled={!isClickable}
-              key={step.id}
-              onClick={() => onSelectStep(step.id)}
-              type="button"
-            >
-              <span
-                className={
-                  isActive || isCompleted
-                    ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white"
-                    : "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 text-[11px] text-ink/42"
-                }
-              >
-                {isCompleted ? "✓" : index + 1}
-              </span>
-              <span className="whitespace-nowrap">{step.shortLabel}</span>
-            </button>
-          );
-        })}
+  return (
+    <nav className="rounded-[24px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.08),transparent_38%),radial-gradient(circle_at_82%_10%,rgba(124,58,237,0.1),transparent_42%),linear-gradient(180deg,rgba(17,20,30,0.9),rgba(8,10,16,0.88))] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
+      <div className="space-y-2">
+        {stepRows.map((row, rowIndex) => (
+          <div
+            className="flex gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            key={rowIndex}
+          >
+            {row.map((step) => {
+              const isActive = step.id === activeStepId;
+              const isCompleted = completedStepIds.includes(step.id);
+              const isClickable = isActive || isCompleted;
+
+              return (
+                <button
+                  className={
+                    isActive
+                      ? "flex min-w-[96px] items-center justify-center rounded-full border border-cyan-300/38 bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.22),transparent_46%),linear-gradient(180deg,rgba(20,45,58,0.78),rgba(14,18,30,0.92))] px-5 py-2.5 text-sm font-semibold text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.11),inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-cyan-300/48 sm:min-w-[116px]"
+                      : isCompleted
+                        ? "flex min-w-[96px] items-center justify-center rounded-full border border-cyan-300/16 bg-[radial-gradient(circle_at_22%_0%,rgba(34,211,238,0.12),transparent_46%),linear-gradient(180deg,rgba(16,29,39,0.66),rgba(11,14,23,0.86))] px-5 py-2.5 text-sm font-semibold text-cyan-100/78 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:border-cyan-300/24 sm:min-w-[116px]"
+                        : "flex min-w-[96px] items-center justify-center rounded-full border border-white/[0.08] bg-[radial-gradient(circle_at_20%_0%,rgba(71,85,105,0.16),transparent_42%),linear-gradient(180deg,rgba(20,23,34,0.72),rgba(10,12,19,0.88))] px-5 py-2.5 text-sm font-medium text-ink/54 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition hover:border-white/[0.12] hover:text-ink/66 sm:min-w-[116px]"
+                  }
+                  disabled={!isClickable}
+                  key={step.id}
+                  onClick={() => onSelectStep(step.id)}
+                  type="button"
+                >
+                  <span className="whitespace-nowrap">{step.shortLabel}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </nav>
+  );
+}
+
+function WorkflowProgressModule({
+  activeStep,
+  activeStepIndex,
+  completedStepIds,
+  progress,
+  steps,
+}: {
+  activeStep: WorkflowStep;
+  activeStepIndex: number;
+  completedStepIds: WorkflowStepId[];
+  progress: number;
+  steps: WorkflowStep[];
+}) {
+  return (
+    <section className="rounded-[26px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.09),transparent_38%),linear-gradient(180deg,rgba(18,21,31,0.92),rgba(9,11,17,0.9))] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent/80">
+            当前进度
+          </p>
+          <h3 className="mt-1 text-base font-semibold text-ink">
+            {activeStep.label}
+          </h3>
+        </div>
+        <div className="text-left sm:text-right">
+          <p className="text-sm font-semibold text-ink">
+            Step {activeStepIndex + 1} / {steps.length}
+          </p>
+          <p className="mt-1 text-xs text-ink/46">
+            已完成 {completedStepIds.length} / {steps.length} · {progress}%
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-white/[0.055]">
+        <div
+          className="h-full rounded-full bg-[linear-gradient(90deg,rgba(34,211,238,0.95),rgba(124,58,237,0.88))] shadow-[0_0_18px_rgba(34,211,238,0.16)] transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </section>
+  );
+}
+
+function UsageGuideDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm"
+      onMouseDown={onClose}
+      role="presentation"
+    >
+      <section
+        aria-modal="true"
+        className="max-h-[86vh] w-full max-w-3xl overflow-y-auto rounded-[28px] border border-white/10 bg-[#0b0e15] p-6 text-ink shadow-[0_30px_120px_rgba(0,0,0,0.55)] sm:p-7"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent/78">
+              SOVA AI
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-ink">使用说明</h2>
+            <p className="mt-2 text-sm leading-6 text-ink/58">
+              快速了解如何用 SOVA AI 排查业务指标异动。
+            </p>
+          </div>
+          <button
+            className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-semibold text-ink/60 transition hover:border-accent/32 hover:text-accent"
+            onClick={onClose}
+            type="button"
+          >
+            关闭
+          </button>
+        </div>
+
+        <div className="mt-6 space-y-5 text-sm leading-7 text-ink/68">
+          <GuideSection title="SOVA AI 是什么">
+            SOVA AI 是一个指标异动分析工作台，适合用来排查“为什么某个业务指标最近变好或变差”。你只需要输入一句业务问题，系统会引导你确认指标口径、选择对比周期和分析维度，并基于上传的数据生成指标变化、Top movers、辅助指标对比、证据链和报告草稿。
+          </GuideSection>
+          <GuideSection title="如何使用">
+            <ol className="list-decimal space-y-2 pl-5">
+              <li>描述业务问题，例如最近新用户 7 日激活率下降了。</li>
+              <li>确认指标口径，例如激活率 = 激活用户数 / 新注册用户数。</li>
+              <li>选择对比周期和分析维度，例如本周 vs 上周，按渠道、地区、设备拆解。</li>
+              <li>上传 CSV 或 Excel 数据，系统会识别时间、分子、分母、维度和辅助指标字段。</li>
+              <li>执行指标计算与可视化分析，查看整体变化、Top movers 和辅助指标。</li>
+              <li>生成证据链和报告草稿，用于复盘、汇报或继续人工分析。</li>
+            </ol>
+          </GuideSection>
+          <GuideSection title="适用场景">
+            <p>
+              SOVA AI 适合分析结构化表格数据中的本期 vs 上期指标对比问题，例如营销转化率下降、SaaS 新用户激活率下降、客服 SLA 超时率上升、物流配送延迟率上升、游戏排位胜率下降等。
+            </p>
+          </GuideSection>
+          <GuideSection title="分析流程">
+            <p>
+              业务问题 → 指标口径 → 数据上传 → 字段识别 → 指标计算规格 → DuckDB 安全计算 → Top movers → 可视化分析 → 证据链 → 报告草稿。
+            </p>
+            <p className="mt-2">
+              它不是让 AI 随便写 SQL，而是先生成结构化 Metric Spec，再用 DuckDB 执行可控的聚合分析。
+            </p>
+          </GuideSection>
+          <GuideSection title="当前实验效果">
+            在已测试的示例场景中，SOVA AI 可以跑通从业务问题到报告草稿的完整流程，并生成指标变化、Top movers、辅助指标对比、可视化拆解、证据链和报告草稿。它更适合作为第一轮数据排查工具，帮助用户形成分析思路和可验证线索，而不是直接替代人工判断。
+          </GuideSection>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function GuideSection({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <section className="rounded-[20px] border border-white/[0.075] bg-white/[0.035] p-4">
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      <div className="mt-2">{children}</div>
+    </section>
   );
 }
 
@@ -1936,11 +2099,15 @@ function BasicAnalysisDisclosure({
   uploadResult: UploadResponse | null;
 }) {
   return (
-    <details className="rounded-lg border border-ink/10 bg-white/78 p-5 shadow-sm backdrop-blur">
-      <summary className="cursor-pointer text-base font-semibold text-ink">
+    <details className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 shadow-sm backdrop-blur">
+      <summary className="cursor-pointer text-base font-semibold text-transparent">
+        <span className="text-ink">可视化分析</span>
         辅助探索区：基础分析
       </summary>
-      <p className="mt-3 rounded-md border border-ink/10 bg-ink/[0.03] px-3 py-2 text-sm leading-6 text-ink/62">
+      <p className="mt-3 rounded-[18px] border border-white/8 bg-white/[0.035] px-3 py-2 text-sm leading-6 text-transparent">
+        <span className="text-ink/62">
+          生成可视化分析后，再基于指标计算结果、Top movers 和辅助指标生成证据链。
+        </span>
         基础分析用于探索记录数和通用分布；指标结论请优先参考上方“指标计算结果”。
       </p>
       <ExecuteAnalysisAction
@@ -2046,7 +2213,16 @@ function WorkflowSidePanel({
   });
 
   return (
-    <aside className="m-4 rounded-2xl border border-white/8 bg-panel/88 p-4 shadow-none backdrop-blur sm:m-5 sm:p-5 lg:m-0 lg:h-full lg:max-h-full lg:overflow-y-auto lg:rounded-none lg:border-y-0 lg:border-r-0">
+    <aside className="border-b border-white/[0.045] bg-[#090b10] px-4 py-5 sm:px-5 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-y-auto lg:border-b-0 lg:border-r lg:border-white/[0.045]">
+      <div className="mb-6 flex items-center gap-3">
+        <span className="relative h-10 w-10 rounded-full bg-[conic-gradient(from_120deg,rgba(34,211,238,0.95),rgba(168,85,247,0.9),rgba(217,70,239,0.72),rgba(251,146,60,0.78),rgba(34,211,238,0.95))] p-[3px]">
+          <span className="block h-full w-full rounded-full bg-[#090b10]" />
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-ink">SOVA AI</p>
+          <p className="text-xs text-ink/42">Metric Intelligence</p>
+        </div>
+      </div>
       <section>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -2063,7 +2239,7 @@ function WorkflowSidePanel({
           <WorkflowStatusBadge label={stepStatus} processing={isProcessing} />
         </div>
 
-        <div className="mt-4">
+        <div className="hidden">
           <div className="h-2 overflow-hidden rounded-full bg-ink/[0.06]">
             <div
               className="h-full rounded-full bg-accent transition-all duration-300"
@@ -2111,7 +2287,7 @@ function WorkflowSidePanel({
       <section className="mt-5">
         <PanelSectionTitle title="数据状态" />
         {primaryFile ? (
-          <div className="mt-3 rounded-lg border border-ink/10 bg-surface/70 p-3">
+          <div className="mt-3 rounded-[20px] border border-white/[0.075] bg-white/[0.03] p-3.5">
             <p className="truncate text-sm font-semibold text-ink">
               {primaryFile.filename}
             </p>
@@ -2146,7 +2322,7 @@ function WorkflowSidePanel({
       <section className="mt-5">
         <PanelSectionTitle title="核心指标摘要" />
         {overall ? (
-          <div className="mt-3 rounded-lg border border-accent/18 bg-accent/8 p-4">
+          <div className="mt-3 rounded-[20px] border border-white/[0.075] bg-white/[0.03] p-4">
             <p className="text-sm font-semibold text-accent">
               {overall.metric_name}
             </p>
@@ -2187,7 +2363,7 @@ function WorkflowSidePanel({
           <ul className="mt-3 space-y-2">
             {topMovers.map((item) => (
               <li
-                className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm"
+                className="rounded-[18px] border border-white/[0.065] bg-white/[0.028] px-3 py-2.5 text-sm"
                 key={`${item.dimension_field}-${item.value}`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -2231,7 +2407,7 @@ function WorkflowSidePanel({
         </section>
       ) : null}
 
-      <section className="mt-5 rounded-lg bg-white/[0.03] p-4">
+      <section className="mt-5 rounded-[20px] border border-white/[0.075] bg-white/[0.035] p-4">
         <h3 className="text-sm font-semibold text-ink">下一步建议</h3>
         <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink/62">
           {isProcessing ? "系统正在处理，请稍等…" : getNextStepHint(activeStep.id)}
@@ -2477,7 +2653,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function PanelPlaceholder({ text }: { text: string }) {
   return (
-    <div className="mt-3 rounded-lg border border-dashed border-ink/12 bg-ink/[0.02] px-4 py-4 text-sm leading-6 text-ink/48">
+    <div className="mt-3 rounded-[20px] border border-white/[0.065] bg-white/[0.028] px-4 py-4 text-sm leading-6 text-ink/48">
       <p>{text}</p>
     </div>
   );
@@ -3109,11 +3285,14 @@ function ExecuteAnalysisAction({
   return (
     <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
       <button
-        className={primaryButtonClassName}
+        className={`${primaryButtonClassName} text-transparent`}
         disabled={isExecutingAnalysis}
         onClick={onExecuteAnalysis}
         type="button"
       >
+        <span className="text-white">
+          {isExecutingAnalysis ? "正在生成可视化分析" : "生成可视化分析"}
+        </span>
         {isExecutingAnalysis ? "正在执行基础分析" : "执行基础分析"}
       </button>
       {analysisExecutionError ? (

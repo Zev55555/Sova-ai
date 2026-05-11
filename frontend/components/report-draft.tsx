@@ -38,7 +38,7 @@ export function ReportDraftSection({
   }
 
   return (
-    <section className="mt-6 rounded-2xl border border-white/8 bg-panel/88 p-5">
+    <section className="mt-6 rounded-[24px] border border-white/10 bg-[#0d0f14]/90 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl transition-colors hover:border-cyan-300/16">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-medium text-accent">证据输出区</p>
@@ -74,7 +74,7 @@ export function ReportDraftSection({
       ) : null}
 
       {reportDraft ? (
-        <div className="mt-5 rounded-xl border border-white/8 bg-white/[0.04] p-5">
+        <div className="mt-5 rounded-[22px] border border-white/8 bg-white/[0.04] p-5">
           <div className="mb-4 rounded-md border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-medium text-accent">
             报告草稿已生成，可继续编辑
           </div>
@@ -105,7 +105,7 @@ export function ReportDraftSection({
           <div className="mt-5 max-h-[58vh] space-y-5 overflow-y-auto pr-1">
             {reportDraft.sections.map((section, index) => (
               <section
-                className="rounded-xl border border-white/8 bg-white/[0.03] p-4"
+                className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 transition-colors hover:border-cyan-300/16"
                 key={section.heading}
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-accent">
