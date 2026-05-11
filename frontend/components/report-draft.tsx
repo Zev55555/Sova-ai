@@ -108,7 +108,7 @@ export function ReportDraftSection({
                 content={section.content}
                 heading={section.heading}
                 key={`${section.heading}-${index}`}
-                label={getReportSectionLabel(index)}
+                label={`Section ${String(index + 1).padStart(2, "0")}`}
               />
             ))}
           </div>
@@ -163,7 +163,7 @@ function FormattedReportContent({
   content: string;
   heading: string;
 }) {
-  const blocks = parseReportContentSafe(content, heading);
+  const blocks = parseReportContentReadable(content, heading);
 
   if (!blocks.length) {
     return null;
@@ -186,15 +186,15 @@ function FormattedReportContent({
         if (block.kind === "list") {
           return (
             <ul
-              className="space-y-3 rounded-[18px] border border-white/[0.07] bg-black/10 p-4"
+              className="space-y-3 rounded-[18px] border border-white/[0.06] bg-white/[0.025] p-4"
               key={`${block.kind}-${index}`}
             >
               {block.items.map((item) => {
-                const parsed = parseListItem(item);
+                const parsed = parseListItemReadable(item);
 
                 return (
-                  <li className="flex gap-3 leading-7 text-ink/72" key={item}>
-                    <span className="mt-0.5 inline-flex min-w-8 shrink-0 justify-center rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
+                  <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 leading-7 text-ink/72" key={item}>
+                    <span className="pt-0.5 text-xs font-semibold text-accent/78">
                       {parsed.marker}
                     </span>
                     <span>{parsed.text}</span>
@@ -419,6 +419,133 @@ function isSameHeadingSafe(line: string, heading: string) {
 }
 
 function normalizeHeadingTextSafe(value: string) {
+  return value
+    .replace(/\s/g, "")
+    .replace(/^【(.+)】$/, "$1")
+    .replace(/^[\u4e00-\u5341]+[、.．]/, "")
+    .replace(/^第[\u4e00-\u5341]+[章节節]?[，,、]/, "")
+    .replace(/[：:。.]$/, "");
+}
+
+function parseReportContentReadable(
+  content: string,
+  heading: string,
+): ReportContentBlock[] {
+  const lines = removeDuplicateLeadingHeadingsReadable(
+    normalizeReportLinesReadable(content),
+    heading,
+  );
+  const blocks: ReportContentBlock[] = [];
+  let listItems: string[] = [];
+
+  function flushList() {
+    if (listItems.length) {
+      blocks.push({ kind: "list", items: listItems });
+      listItems = [];
+    }
+  }
+
+  lines.forEach((line) => {
+    if (isReportListItemReadable(line)) {
+      listItems.push(line);
+      return;
+    }
+
+    flushList();
+
+    if (/^【[^】]+】/.test(line)) {
+      blocks.push({ kind: "subheading", text: line });
+      return;
+    }
+
+    blocks.push({ kind: "paragraph", text: line });
+  });
+
+  flushList();
+
+  return blocks;
+}
+
+function normalizeReportLinesReadable(content: string) {
+  return content
+    .replace(/\r\n/g, "\n")
+    .split(/\n+/)
+    .flatMap(splitInlineNumberedItemsReadable)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function splitInlineNumberedItemsReadable(line: string) {
+  const markerPattern =
+    /(?:^|\s)((?:\d+[）)]|\d+\.(?=\s)|第[\u4e00-\u5341]+[，,]))/g;
+  const matches = Array.from(line.matchAll(markerPattern));
+
+  if (matches.length <= 1 || matches[0].index === undefined) {
+    return [line];
+  }
+
+  const chunks: string[] = [];
+  const firstIndex = matches[0].index + matches[0][0].indexOf(matches[0][1]);
+
+  if (firstIndex > 0) {
+    chunks.push(line.slice(0, firstIndex));
+  }
+
+  matches.forEach((match, index) => {
+    const start = (match.index ?? 0) + match[0].indexOf(match[1]);
+    const end = matches[index + 1]?.index ?? line.length;
+    chunks.push(line.slice(start, end));
+  });
+
+  return chunks;
+}
+
+function isReportListItemReadable(line: string) {
+  return /^(?:\d+[）)]|\d+\s*\.(?=\s)|第[\u4e00-\u5341]+[，,])/.test(
+    line,
+  );
+}
+
+function parseListItemReadable(item: string) {
+  const match = item.match(
+    /^(\d+[）)]|\d+\s*\.|第[\u4e00-\u5341]+[，,])\s*(.*)$/,
+  );
+
+  if (!match) {
+    return { marker: "", text: item };
+  }
+
+  return {
+    marker: match[1],
+    text: match[2] || item,
+  };
+}
+
+function removeDuplicateLeadingHeadingsReadable(
+  lines: string[],
+  heading: string,
+) {
+  const nextLines = [...lines];
+
+  while (nextLines.length && isSameHeadingReadable(nextLines[0], heading)) {
+    nextLines.shift();
+  }
+
+  return nextLines;
+}
+
+function isSameHeadingReadable(line: string, heading: string) {
+  const normalizedLine = normalizeHeadingTextReadable(line);
+  const normalizedHeading = normalizeHeadingTextReadable(heading);
+
+  return (
+    normalizedLine === normalizedHeading ||
+    normalizedLine.endsWith(normalizedHeading) ||
+    normalizedHeading.endsWith(normalizedLine)
+  );
+}
+
+function normalizeHeadingTextReadable(value: string) {
   return value
     .replace(/\s/g, "")
     .replace(/^【(.+)】$/, "$1")
