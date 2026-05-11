@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -33,13 +35,21 @@ from services.report_llm import LlmReportRequest, generate_report_with_llm
 
 app = FastAPI(title="MetricFlow AI Backend")
 
+default_cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://[::1]:3000",
+    "https://sova-ai-ten.vercel.app",
+]
+extra_cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOW_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://[::1]:3000",
-    ],
+    allow_origins=[*default_cors_origins, *extra_cors_origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
