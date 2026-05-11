@@ -1,4 +1,4 @@
-# Sova AI / MetricFlow AI 代码地图
+# SOVA AI 代码地图
 
 本文件用于快速定位常见任务相关文件，减少无意义全项目扫描。
 
@@ -267,3 +267,29 @@ Stage 7B-3 已接入：
 - `backend/services/evidence_llm.py`、`backend/services/report_llm.py`：LLM prompt 携带并要求优先使用 `metric_execution_result`。
 
 说明：Stage 7B-3 不删除旧 evidence/report API，不删除旧“执行基础分析”按钮。未传 `metric_execution_result` 时，旧流程继续可用。
+
+### UI-3 异步任务过程反馈
+
+优先查看：
+- `frontend/lib/task-feedback.ts`
+- `frontend/components/metricflow-workspace.tsx`
+
+说明：UI-3 只新增前端任务状态与展示组件，覆盖上传数据、生成分析计划、执行指标计算、生成证据链和生成报告草稿。主区域显示任务进度卡片，右侧分析驾驶舱显示“系统正在执行”和当前子步骤；不改变 backend、API、上传接口、Metric Spec Builder / Executor、证据链、报告或数据计算逻辑。
+
+### UI-4 结果区信息层级重排
+
+优先查看：
+- `frontend/components/metricflow-workspace.tsx`
+- `frontend/components/evidence-chain.tsx`
+- `frontend/components/report-draft.tsx`
+
+说明：UI-4 只调整前端结果展示层级。Step 8 将指标计算结果作为主结论，Top movers、辅助指标和维度拆解作为解释层；维度拆解默认只展示前 1-2 个维度，其余折叠。Step 9 强化证据链卡片层级；Step 10 强化报告草稿的正式输出排版。
+
+### UI-5 视觉收尾与首次使用体验
+
+优先查看：
+- `frontend/components/metricflow-workspace.tsx`
+- `frontend/components/api-settings.tsx`
+- `frontend/components/report-draft.tsx`
+
+说明：UI-5 不改产品结构和分析链路，只统一 B2B SaaS dashboard 视觉、补充 Step 1 默认折叠的示例问题辅助入口、统一空状态和按钮状态，并优化小屏下右侧驾驶舱、步骤导航、长表格和报告正文的展示。Step 1 仍以业务问题输入框为主。

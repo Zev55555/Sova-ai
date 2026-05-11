@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
-  background: #f4f6f7;
+  color-scheme: dark;
+  background: #07090d;
 }
 
 * {
@@ -13,17 +13,14 @@
 
 html {
   min-width: 320px;
-  background: #f4f6f7;
+  background: #07090d;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    linear-gradient(135deg, rgba(31, 138, 112, 0.12), transparent 34rem),
-    linear-gradient(315deg, rgba(196, 122, 36, 0.1), transparent 32rem),
-    #f4f6f7;
-  color: #101316;
+  background: #07090d;
+  color: #f4f7fb;
   font-family:
     Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
     system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -40,5 +37,161 @@ button {
 }
 
 ::selection {
-  background: rgba(31, 138, 112, 0.22);
+  background: rgba(34, 197, 158, 0.24);
+}
+
+.sova-dark-workspace * {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-width: thin;
+}
+
+.sova-dark-workspace *::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.sova-dark-workspace *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.sova-dark-workspace *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sova-dark-workspace [class~="bg-white"],
+.sova-dark-workspace [class~="bg-white/82"],
+.sova-dark-workspace [class~="bg-white/86"],
+.sova-dark-workspace [class~="bg-white/88"],
+.sova-dark-workspace [class~="bg-white/78"],
+.sova-dark-workspace [class~="bg-white/76"],
+.sova-dark-workspace [class~="bg-white/72"],
+.sova-dark-workspace [class~="bg-white/70"] {
+  background-color: rgba(21, 24, 33, 0.86);
+}
+
+.sova-dark-workspace [class~="bg-surface"],
+.sova-dark-workspace [class~="bg-surface/60"],
+.sova-dark-workspace [class~="bg-surface/70"],
+.sova-dark-workspace [class~="bg-surface/95"] {
+  background-color: rgba(24, 27, 34, 0.88);
+}
+
+.sova-dark-workspace [class~="bg-red-50"],
+.api-settings-dialog [class~="bg-red-50"],
+.sova-dark-workspace [class~="bg-red-100"],
+.api-settings-dialog [class~="bg-red-100"] {
+  background-color: rgba(127, 29, 29, 0.24);
+}
+
+.sova-dark-workspace [class~="bg-amber-50"],
+.api-settings-dialog [class~="bg-amber-50"] {
+  background-color: rgba(120, 53, 15, 0.24);
+}
+
+.sova-dark-workspace [class~="text-red-700"],
+.api-settings-dialog [class~="text-red-700"],
+.sova-dark-workspace [class~="text-red-800"],
+.api-settings-dialog [class~="text-red-800"] {
+  color: #fca5a5;
+}
+
+.sova-dark-workspace [class~="text-amber-700"],
+.api-settings-dialog [class~="text-amber-700"],
+.sova-dark-workspace [class~="text-amber-800"],
+.api-settings-dialog [class~="text-amber-800"],
+.sova-dark-workspace [class~="text-amber-800/80"],
+.api-settings-dialog [class~="text-amber-800/80"],
+.sova-dark-workspace [class~="text-amber-800/82"],
+.api-settings-dialog [class~="text-amber-800/82"] {
+  color: #f8d38d;
+}
+
+.sova-dark-workspace [class~="border-red-200"],
+.api-settings-dialog [class~="border-red-200"] {
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+.sova-dark-workspace [class~="border-amber-200"],
+.api-settings-dialog [class~="border-amber-200"] {
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.sova-dark-workspace table {
+  color: #f4f7fb;
+}
+
+.sova-dark-workspace thead,
+.api-settings-dialog thead {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.sova-dark-workspace th,
+.sova-dark-workspace td,
+.api-settings-dialog th,
+.api-settings-dialog td {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.sova-dark-workspace input,
+.sova-dark-workspace textarea,
+.sova-dark-workspace select,
+.api-settings-dialog input,
+.api-settings-dialog textarea,
+.api-settings-dialog select {
+  background-color: rgba(17, 19, 24, 0.92);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f4f7fb;
+}
+
+.sova-dark-workspace input::placeholder,
+.sova-dark-workspace textarea::placeholder,
+.api-settings-dialog input::placeholder,
+.api-settings-dialog textarea::placeholder {
+  color: rgba(244, 247, 251, 0.38);
+}
+
+.sova-dark-workspace input:focus,
+.sova-dark-workspace textarea:focus,
+.sova-dark-workspace select:focus,
+.api-settings-dialog input:focus,
+.api-settings-dialog textarea:focus,
+.api-settings-dialog select:focus {
+  background-color: rgba(17, 19, 24, 0.96);
+  border-color: rgba(34, 197, 158, 0.68);
+}
+
+.sova-dark-workspace details,
+.api-settings-dialog details {
+  background-color: rgba(17, 19, 24, 0.78);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.sova-dark-workspace summary,
+.api-settings-dialog summary {
+  border-radius: 10px;
+}
+
+.sova-dark-workspace summary:hover,
+.api-settings-dialog summary:hover {
+  color: #22c59e;
+}
+
+.sova-dark-workspace .hover\:bg-white:hover,
+.sova-dark-workspace .focus\:bg-white:focus,
+.api-settings-dialog .hover\:bg-white:hover,
+.api-settings-dialog .focus\:bg-white:focus {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.api-settings-dialog [class~="bg-white"],
+.api-settings-dialog [class~="bg-white/82"] {
+  background-color: rgba(21, 24, 33, 0.9);
+}
+
+.sova-dark-workspace [class~="shadow-sm"],
+.sova-dark-workspace [class~="shadow-soft"],
+.api-settings-dialog [class~="shadow-sm"],
+.api-settings-dialog [class~="shadow-soft"] {
+  box-shadow: none;
 }

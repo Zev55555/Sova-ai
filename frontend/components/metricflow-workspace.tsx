@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   evaluateReadiness,
   evaluateReadinessLocally,
@@ -58,10 +58,15 @@ import {
   type ReportDraft,
 } from "@/lib/report-draft";
 import { generateReportDraftWithLlm } from "@/lib/llm-report-draft";
+import {
+  asyncTaskDefinitions,
+  getAsyncTaskStepIndex,
+  type AsyncTaskFeedback,
+  type AsyncTaskId,
+} from "@/lib/task-feedback";
 import { AnalysisCharts } from "@/components/analysis-charts";
 import { ApiSettings } from "@/components/api-settings";
 import { EvidenceChainSection } from "@/components/evidence-chain";
-import { ReadinessPanel } from "@/components/readiness-panel";
 import { ReportDraftSection } from "@/components/report-draft";
 
 type SingleOption = {
@@ -70,6 +75,43 @@ type SingleOption = {
   definition?: string;
   description: string;
 };
+
+type WorkflowStepId =
+  | "business_problem"
+  | "metric_definition"
+  | "comparison_period"
+  | "dimensions"
+  | "change_factors"
+  | "upload_data"
+  | "analysis_plan"
+  | "metric_calculation"
+  | "evidence_chain"
+  | "report_draft";
+
+type WorkflowStep = {
+  id: WorkflowStepId;
+  label: string;
+  shortLabel: string;
+};
+
+type StarterExample = {
+  title: string;
+  problem: string;
+  metricDefinition: string;
+};
+
+const workflowSteps: WorkflowStep[] = [
+  { id: "business_problem", label: "描述业务问题", shortLabel: "问题" },
+  { id: "metric_definition", label: "确认指标口径", shortLabel: "口径" },
+  { id: "comparison_period", label: "确认对比周期", shortLabel: "周期" },
+  { id: "dimensions", label: "确认分析维度", shortLabel: "维度" },
+  { id: "change_factors", label: "确认近期变化因素", shortLabel: "变化" },
+  { id: "upload_data", label: "上传数据", shortLabel: "上传" },
+  { id: "analysis_plan", label: "生成分析计划", shortLabel: "计划" },
+  { id: "metric_calculation", label: "执行指标计算", shortLabel: "计算" },
+  { id: "evidence_chain", label: "生成证据链", shortLabel: "证据" },
+  { id: "report_draft", label: "生成报告草稿", shortLabel: "报告" },
+];
 
 const comparisonOptions: SingleOption[] = [
   {
@@ -99,6 +141,36 @@ const comparisonOptions: SingleOption[] = [
 ];
 
 const specialChangeFactorIds = ["none", "unknown"];
+
+const panelClassName =
+  "rounded-2xl border border-white/8 bg-panel/88 p-5 shadow-none backdrop-blur sm:p-6 lg:min-h-full";
+const primaryButtonClassName =
+  "min-h-11 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/85 focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/40";
+const secondaryButtonClassName =
+  "min-h-11 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/4 disabled:text-ink/34";
+
+const starterExamples: StarterExample[] = [
+  {
+    title: "SaaS 激活",
+    problem: "最近新用户 7 日激活率明显下降，但注册用户数没有明显下降。",
+    metricDefinition: "新注册用户在注册后 7 天内完成关键激活动作的比例",
+  },
+  {
+    title: "客服 SLA",
+    problem: "最近客服 SLA 超时率上升，整体工单量没有同步大幅增加。",
+    metricDefinition: "超过 SLA 承诺处理时长的工单数 / 总工单数",
+  },
+  {
+    title: "物流履约",
+    problem: "最近物流配送延迟率明显上升，但总运单量没有明显下降。",
+    metricDefinition: "延迟送达运单数 / 总运单数",
+  },
+  {
+    title: "Valorant 胜率",
+    problem: "最近 Valorant 排位胜率下降，但对局数量和玩家在线时长基本稳定。",
+    metricDefinition: "获胜对局数 / 总排位对局数",
+  },
+];
 
 export function MetricFlowWorkspace() {
   const [clarificationState, setClarificationState] =
@@ -153,6 +225,11 @@ export function MetricFlowWorkspace() {
   const [isGeneratingMetricDefinitions, setIsGeneratingMetricDefinitions] =
     useState(false);
   const [metricDefinitionNotice, setMetricDefinitionNotice] = useState("");
+  const [activeStepId, setActiveStepId] =
+    useState<WorkflowStepId>("business_problem");
+  const [taskFeedback, setTaskFeedback] =
+    useState<AsyncTaskFeedback | null>(null);
+  const [taskFeedbackNow, setTaskFeedbackNow] = useState(() => Date.now());
 
   const localBusinessClarificationResult = useMemo(
     () => generateLocalBusinessClarification(clarificationState.businessProblem),
@@ -193,6 +270,97 @@ export function MetricFlowWorkspace() {
     () => getReadinessWithUploadState(readiness, uploadResult),
     [readiness, uploadResult],
   );
+  const completedWorkflowStepIds = useMemo(
+    () =>
+      getCompletedWorkflowStepIds({
+        state: clarificationState,
+        hasStarted,
+        uploadResult,
+        analysisPlan,
+        metricSpecExecutionResult,
+        evidenceResult,
+        reportDraft,
+      }),
+    [
+      analysisPlan,
+      clarificationState,
+      evidenceResult,
+      hasStarted,
+      metricSpecExecutionResult,
+      reportDraft,
+      uploadResult,
+    ],
+  );
+  const activeWorkflowStep =
+    workflowSteps.find((step) => step.id === activeStepId) ?? workflowSteps[0];
+  const activeStepIndex = workflowSteps.findIndex(
+    (step) => step.id === activeWorkflowStep.id,
+  );
+  const workflowProgress = Math.round(
+    (completedWorkflowStepIds.length / workflowSteps.length) * 100,
+  );
+  const taskStepIndex = taskFeedback
+    ? getAsyncTaskStepIndex(taskFeedback, taskFeedbackNow)
+    : 0;
+
+  useEffect(() => {
+    if (taskFeedback?.status !== "running") {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setTaskFeedbackNow(Date.now());
+    }, 500);
+
+    return () => window.clearInterval(timer);
+  }, [taskFeedback?.status, taskFeedback?.startedAt]);
+
+  function beginTaskFeedback(taskId: AsyncTaskId) {
+    const now = Date.now();
+    setTaskFeedback({
+      taskId,
+      status: "running",
+      startedAt: now,
+    });
+    setTaskFeedbackNow(now);
+  }
+
+  function completeTaskFeedback(taskId: AsyncTaskId) {
+    const now = Date.now();
+    setTaskFeedback((current) => ({
+      taskId,
+      status: "success",
+      startedAt: current?.taskId === taskId ? current.startedAt : now,
+      finishedAt: now,
+    }));
+    setTaskFeedbackNow(now);
+  }
+
+  function failTaskFeedback(taskId: AsyncTaskId, errorMessage: string) {
+    const now = Date.now();
+    setTaskFeedback((current) => ({
+      taskId,
+      status: "error",
+      startedAt: current?.taskId === taskId ? current.startedAt : now,
+      finishedAt: now,
+      errorMessage,
+    }));
+    setTaskFeedbackNow(now);
+  }
+
+  function getVisibleTaskFeedback(taskId: AsyncTaskId) {
+    return taskFeedback?.taskId === taskId ? taskFeedback : null;
+  }
+
+  function handleSelectStarterExample(example: StarterExample) {
+    setClarificationState((current) => ({
+      ...current,
+      businessProblem: example.problem,
+      analysisTarget: "",
+    }));
+    setBusinessClarificationResult(null);
+    setMetricDefinitionNotice("");
+  }
 
   async function syncReadiness(nextState: ClarificationState) {
     setClarificationState(nextState);
@@ -272,6 +440,7 @@ export function MetricFlowWorkspace() {
     setClarificationState(nextState);
     setReadiness(nextReadiness);
     setIsEvaluating(false);
+    setActiveStepId("metric_definition");
   }
 
   async function handleSelectMetric(option: MetricDefinitionCard) {
@@ -289,6 +458,9 @@ export function MetricFlowWorkspace() {
       customComparisonPeriod: "",
       customDimensions: [],
     });
+    if (option.id !== "custom") {
+      setActiveStepId("comparison_period");
+    }
   }
 
   async function handleCustomMetricChange(value: string) {
@@ -307,6 +479,9 @@ export function MetricFlowWorkspace() {
       customComparisonPeriod: "",
       customDimensions: [],
     });
+    if (value.trim()) {
+      setActiveStepId("comparison_period");
+    }
   }
 
   async function handleSelectComparison(option: SingleOption) {
@@ -321,6 +496,9 @@ export function MetricFlowWorkspace() {
       customComparisonPeriod: option.id === "custom" ? "" : undefined,
       customDimensions: [],
     });
+    if (option.id !== "custom") {
+      setActiveStepId("dimensions");
+    }
   }
 
   async function handleCustomComparisonChange(value: string) {
@@ -337,6 +515,9 @@ export function MetricFlowWorkspace() {
       customComparisonPeriod: value,
       customDimensions: [],
     });
+    if (value.trim()) {
+      setActiveStepId("dimensions");
+    }
   }
 
   function handleToggleDimension(optionId: string) {
@@ -355,6 +536,7 @@ export function MetricFlowWorkspace() {
       changeFactors: [],
       customDimensions: customDimension.trim() ? [customDimension.trim()] : [],
     });
+    setActiveStepId("change_factors");
   }
 
   function handleToggleChangeFactor(optionId: string) {
@@ -382,6 +564,7 @@ export function MetricFlowWorkspace() {
       ...clarificationState,
       changeFactors: draftChangeFactors,
     });
+    setActiveStepId("upload_data");
   }
 
   function resetAfterMetric() {
@@ -411,7 +594,6 @@ export function MetricFlowWorkspace() {
     setAnalysisPlanError("");
     setAnalysisPlanNotice("");
     setIsGeneratingAnalysisPlan(false);
-    setMetricSpec(null);
     setMetricSpecError("");
     setMetricSpecExecutionResult(null);
     setMetricSpecExecutionError("");
@@ -427,34 +609,35 @@ export function MetricFlowWorkspace() {
     setReportError("");
     setReportNotice("");
     setIsGeneratingReport(false);
+    setTaskFeedback(null);
   }
 
   async function handleUploadFiles(files: File[]) {
+    if (isUploading) {
+      return;
+    }
+
     const selectedFiles = files.filter(isValidBrowserFile);
 
-    setUploadResult(null);
     setUploadError("");
-    setAnalysisPlan(null);
     setAnalysisPlanError("");
     setAnalysisPlanNotice("");
-    setMetricSpec(null);
     setMetricSpecError("");
-    setMetricSpecExecutionResult(null);
     setMetricSpecExecutionError("");
-    setAnalysisExecutionResult(null);
     setAnalysisExecutionError("");
-    setEvidenceResult(null);
     setEvidenceError("");
     setEvidenceNotice("");
-    setReportDraft(null);
     setReportError("");
     setReportNotice("");
 
     if (selectedFiles.length !== files.length || selectedFiles.length === 0) {
-      setUploadError("上传失败：没有读取到有效文件，请重新选择 CSV 或 Excel 文件。");
+      const message = "上传失败：没有读取到有效文件，请重新选择 CSV 或 Excel 文件。";
+      setUploadError(message);
+      failTaskFeedback("upload_data", message);
       return;
     }
 
+    beginTaskFeedback("upload_data");
     setIsUploading(true);
 
     try {
@@ -473,27 +656,39 @@ export function MetricFlowWorkspace() {
         uploadBusinessContext,
       );
       setUploadResult(nextUploadResult);
+      clearGeneratedOutputsAfterUploadSuccess();
       setUploadError("");
+      completeTaskFeedback("upload_data");
+      setActiveStepId("analysis_plan");
     } catch (error) {
-      setUploadResult(null);
-      setAnalysisPlan(null);
-      setMetricSpec(null);
-      setMetricSpecExecutionResult(null);
-      setAnalysisExecutionResult(null);
-      setEvidenceResult(null);
-      setReportDraft(null);
-      setUploadError(
-        error instanceof Error ? error.message : "数据上传失败，请稍后重试。",
-      );
+      const message =
+        error instanceof Error ? error.message : "数据上传失败，请稍后重试。";
+      setUploadError(message);
+      failTaskFeedback("upload_data", message);
     } finally {
       setIsUploading(false);
     }
   }
 
+  function clearGeneratedOutputsAfterUploadSuccess() {
+    setAnalysisPlan(null);
+    setMetricSpec(null);
+    setMetricSpecExecutionResult(null);
+    setAnalysisExecutionResult(null);
+    setEvidenceResult(null);
+    setReportDraft(null);
+  }
+
   async function handleGenerateAnalysisPlan() {
+    if (isGeneratingAnalysisPlan) {
+      return;
+    }
+
     if (!uploadResult) {
+      const message = "请先上传数据并完成字段识别。";
       setAnalysisPlanNotice("");
-      setAnalysisPlanError("请先上传数据并完成字段识别。");
+      setAnalysisPlanError(message);
+      failTaskFeedback("analysis_plan", message);
       return;
     }
 
@@ -507,19 +702,15 @@ export function MetricFlowWorkspace() {
     };
     const llmSettings = getInitialLlmSettings();
 
+    beginTaskFeedback("analysis_plan");
     setIsGeneratingAnalysisPlan(true);
     setAnalysisPlanError("");
     setAnalysisPlanNotice("");
-    setMetricSpec(null);
     setMetricSpecError("");
-    setMetricSpecExecutionResult(null);
     setMetricSpecExecutionError("");
-    setAnalysisExecutionResult(null);
     setAnalysisExecutionError("");
-    setEvidenceResult(null);
     setEvidenceError("");
     setEvidenceNotice("");
-    setReportDraft(null);
     setReportError("");
     setReportNotice("");
 
@@ -535,6 +726,9 @@ export function MetricFlowWorkspace() {
           );
           setAnalysisPlan(llmAnalysisPlan);
           await handleBuildMetricSpec(llmAnalysisPlan);
+          clearGeneratedOutputsAfterNewPlan();
+          completeTaskFeedback("analysis_plan");
+          setActiveStepId("metric_calculation");
           setAnalysisPlanNotice(
             llmAnalysisPlan.source === "llm"
               ? "AI 已根据业务问题和数据字段生成分析计划。"
@@ -547,6 +741,9 @@ export function MetricFlowWorkspace() {
             error instanceof Error ? error.message : "LLM 接口调用失败";
           setAnalysisPlan(localPlan);
           await handleBuildMetricSpec(localPlan);
+          clearGeneratedOutputsAfterNewPlan();
+          completeTaskFeedback("analysis_plan");
+          setActiveStepId("metric_calculation");
           setAnalysisPlanNotice(
             `AI 分析计划生成失败：${reason}。已使用本地规则继续生成分析计划。`,
           );
@@ -557,14 +754,26 @@ export function MetricFlowWorkspace() {
       const nextAnalysisPlan = await generateAnalysisPlan(planInput);
       setAnalysisPlan(nextAnalysisPlan);
       await handleBuildMetricSpec(nextAnalysisPlan);
+      clearGeneratedOutputsAfterNewPlan();
+      completeTaskFeedback("analysis_plan");
+      setActiveStepId("metric_calculation");
       setAnalysisPlanNotice(
         "当前使用本地规则生成分析计划。你也可以在 API 设置中配置模型，获得更智能的分析计划。",
       );
     } catch {
-      setAnalysisPlanError("分析计划生成失败，请稍后重试或检查上传数据。");
+      const message = "分析计划生成失败，请稍后重试或检查上传数据。";
+      setAnalysisPlanError(message);
+      failTaskFeedback("analysis_plan", message);
     } finally {
       setIsGeneratingAnalysisPlan(false);
     }
+  }
+
+  function clearGeneratedOutputsAfterNewPlan() {
+    setMetricSpecExecutionResult(null);
+    setAnalysisExecutionResult(null);
+    setEvidenceResult(null);
+    setReportDraft(null);
   }
 
   async function handleBuildMetricSpec(nextAnalysisPlan: AnalysisPlan) {
@@ -596,22 +805,28 @@ export function MetricFlowWorkspace() {
   }
 
   async function handleExecuteMetricSpec() {
+    if (isExecutingMetricSpec) {
+      return;
+    }
+
     if (!uploadResult || !metricSpec) {
-      setMetricSpecExecutionError("请先生成指标计算规格。");
+      const message = "请先生成指标计算规格。";
+      setMetricSpecExecutionError(message);
+      failTaskFeedback("metric_calculation", message);
       return;
     }
 
     if (!isMetricSpecExecutable(metricSpec)) {
-      setMetricSpecExecutionResult(null);
-      setMetricSpecExecutionError(
-        "指标计算规格缺少分子或分母字段，请检查字段语义识别。",
-      );
+      const message =
+        "指标计算规格缺少分子或分母字段，请检查字段语义识别。";
+      setMetricSpecExecutionError(message);
+      failTaskFeedback("metric_calculation", message);
       return;
     }
 
+    beginTaskFeedback("metric_calculation");
     setIsExecutingMetricSpec(true);
     setMetricSpecExecutionError("");
-    setMetricSpecExecutionResult(null);
 
     try {
       const result = await executeMetricSpec({
@@ -619,10 +834,15 @@ export function MetricFlowWorkspace() {
         metricSpec,
       });
       setMetricSpecExecutionResult(result);
+      setEvidenceResult(null);
+      setReportDraft(null);
+      completeTaskFeedback("metric_calculation");
+      setActiveStepId("evidence_chain");
     } catch (error) {
-      setMetricSpecExecutionError(
-        error instanceof Error ? error.message : "指标计算执行失败，请稍后重试。",
-      );
+      const message =
+        error instanceof Error ? error.message : "指标计算执行失败，请稍后重试。";
+      setMetricSpecExecutionError(message);
+      failTaskFeedback("metric_calculation", message);
     } finally {
       setIsExecutingMetricSpec(false);
     }
@@ -655,6 +875,7 @@ export function MetricFlowWorkspace() {
         changeFactors: clarificationState.changeFactors,
       });
       setAnalysisExecutionResult(nextExecutionResult);
+      setActiveStepId("evidence_chain");
     } catch (error) {
       setAnalysisExecutionError(
         error instanceof Error
@@ -667,15 +888,24 @@ export function MetricFlowWorkspace() {
   }
 
   async function handleGenerateEvidenceChain() {
+    if (isGeneratingEvidence) {
+      return;
+    }
+
     if (metricSpec && !isMetricSpecExecutable(metricSpec) && !analysisExecutionResult) {
+      const message =
+        "指标计算规格缺少分子或分母字段，请检查字段语义识别。";
       setEvidenceNotice("");
-      setEvidenceError("指标计算规格缺少分子或分母字段，请检查字段语义识别。");
+      setEvidenceError(message);
+      failTaskFeedback("evidence_chain", message);
       return;
     }
 
     if (!analysisPlan || (!analysisExecutionResult && !metricSpecExecutionResult)) {
+      const message = "请先执行指标计算或基础分析，再生成证据链。";
       setEvidenceNotice("");
-      setEvidenceError("请先执行指标计算或基础分析，再生成证据链。");
+      setEvidenceError(message);
+      failTaskFeedback("evidence_chain", message);
       return;
     }
 
@@ -691,10 +921,10 @@ export function MetricFlowWorkspace() {
     };
     const llmSettings = getInitialLlmSettings();
 
+    beginTaskFeedback("evidence_chain");
     setIsGeneratingEvidence(true);
     setEvidenceError("");
     setEvidenceNotice("");
-    setReportDraft(null);
     setReportError("");
     setReportNotice("");
 
@@ -709,6 +939,9 @@ export function MetricFlowWorkspace() {
             llmSettings,
           );
           setEvidenceResult(llmEvidenceResult);
+          setReportDraft(null);
+          completeTaskFeedback("evidence_chain");
+          setActiveStepId("report_draft");
           setEvidenceNotice(
             llmEvidenceResult.source === "llm"
               ? metricSpecExecutionResult
@@ -722,6 +955,9 @@ export function MetricFlowWorkspace() {
           const reason =
             error instanceof Error ? error.message : "LLM 接口调用失败";
           setEvidenceResult(localEvidenceResult);
+          setReportDraft(null);
+          completeTaskFeedback("evidence_chain");
+          setActiveStepId("report_draft");
           setEvidenceNotice(
             `AI 证据链生成失败：${reason}。已使用本地规则继续生成证据链。`,
           );
@@ -731,26 +967,36 @@ export function MetricFlowWorkspace() {
 
       const nextEvidenceResult = await generateEvidenceChain(evidenceInput);
       setEvidenceResult(nextEvidenceResult);
+      setReportDraft(null);
+      completeTaskFeedback("evidence_chain");
+      setActiveStepId("report_draft");
       setEvidenceNotice(
         metricSpecExecutionResult
           ? "已使用指标计算结果生成证据链。"
           : "当前使用本地规则生成证据链。你也可以在 API 设置中配置模型，获得更自然的证据链表达。",
       );
     } catch (error) {
-      setEvidenceError(
+      const message =
         error instanceof Error
           ? error.message
-          : "证据链生成失败，请稍后重试或检查分析结果。",
-      );
+          : "证据链生成失败，请稍后重试或检查分析结果。";
+      setEvidenceError(message);
+      failTaskFeedback("evidence_chain", message);
     } finally {
       setIsGeneratingEvidence(false);
     }
   }
 
   async function handleGenerateReportDraft() {
+    if (isGeneratingReport) {
+      return;
+    }
+
     if (!analysisPlan || (!analysisExecutionResult && !metricSpecExecutionResult) || !evidenceResult) {
+      const message = "请先生成证据链，再生成报告草稿。";
       setReportNotice("");
-      setReportError("请先生成证据链，再生成报告草稿。");
+      setReportError(message);
+      failTaskFeedback("report_draft", message);
       return;
     }
 
@@ -767,6 +1013,7 @@ export function MetricFlowWorkspace() {
     };
     const llmSettings = getInitialLlmSettings();
 
+    beginTaskFeedback("report_draft");
     setIsGeneratingReport(true);
     setReportError("");
     setReportNotice("");
@@ -779,6 +1026,7 @@ export function MetricFlowWorkspace() {
             llmSettings,
           );
           setReportDraft(llmReportDraft);
+          completeTaskFeedback("report_draft");
           setReportNotice(
             llmReportDraft.source === "llm"
               ? metricSpecExecutionResult
@@ -792,6 +1040,7 @@ export function MetricFlowWorkspace() {
           const reason =
             error instanceof Error ? error.message : "LLM 接口调用失败";
           setReportDraft(localReportDraft);
+          completeTaskFeedback("report_draft");
           setReportNotice(
             `AI 报告生成失败：${reason}。已使用本地规则继续生成报告草稿。`,
           );
@@ -801,311 +1050,564 @@ export function MetricFlowWorkspace() {
 
       const nextReportDraft = await generateReportDraft(reportInput);
       setReportDraft(nextReportDraft);
+      completeTaskFeedback("report_draft");
       setReportNotice(
         metricSpecExecutionResult
           ? "已使用指标计算结果生成报告草稿。"
           : "当前使用本地规则生成报告草稿。你也可以在 API 设置中配置模型，获得更自然的报告表达。",
       );
     } catch (error) {
-      setReportError(
+      const message =
         error instanceof Error
           ? error.message
-          : "报告草稿生成失败，请稍后重试或检查证据链。",
-      );
+          : "报告草稿生成失败，请稍后重试或检查证据链。";
+      setReportError(message);
+      failTaskFeedback("report_draft", message);
     } finally {
       setIsGeneratingReport(false);
     }
   }
 
-  return (
-    <main className="min-h-screen px-4 py-5 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-6 rounded-lg border border-ink/10 bg-surface/82 px-5 py-5 shadow-soft backdrop-blur sm:px-7">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="mb-2 text-sm font-medium text-accent">
-                中文 AI 指标异动分析工作台
-              </p>
-              <h1 className="text-2xl font-semibold tracking-normal text-ink sm:text-3xl">
-                MetricFlow AI｜指标异动分析工作台
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-ink/68 sm:text-base">
-                从模糊业务问题出发，逐步澄清指标口径、分析维度和数据需求。
-              </p>
+  function renderWorkflowStep() {
+    switch (activeWorkflowStep.id) {
+      case "business_problem":
+        return (
+          <section className={panelClassName}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-accent">Step 1</p>
+                <h2 className="mt-1 text-xl font-semibold text-ink">
+                  描述你遇到的业务指标问题
+                </h2>
+              </div>
+              {isEvaluating ? (
+                <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+                  正在评估分析就绪状态
+                </span>
+              ) : null}
             </div>
-            <ApiSettings />
-          </div>
-        </header>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <div className="space-y-6">
-            <section className="rounded-lg border border-ink/10 bg-surface/86 p-5 shadow-soft backdrop-blur sm:p-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm font-medium text-accent">第一步</p>
-                  <h2 className="mt-1 text-xl font-semibold text-ink">
-                    描述你遇到的业务指标问题
-                  </h2>
-                </div>
-                {isEvaluating ? (
-                  <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-                    正在评估分析就绪状态
-                  </span>
-                ) : null}
+            <div className="mt-5">
+              <label className="sr-only" htmlFor="business-problem">
+                业务问题
+              </label>
+              <textarea
+                className="min-h-44 w-full resize-none rounded-xl border border-white/10 bg-white/[0.04] p-5 text-base leading-7 text-ink outline-none transition focus:border-accent/60 focus:bg-white/[0.05] focus:ring-4 focus:ring-accent/12"
+                id="business-problem"
+                onChange={(event) => {
+                  setClarificationState((current) => ({
+                    ...current,
+                    businessProblem: event.target.value,
+                    analysisTarget: "",
+                  }));
+                  setBusinessClarificationResult(null);
+                  setMetricDefinitionNotice("");
+                }}
+                placeholder="请用一句话描述你遇到的指标问题，例如：最近配送延迟率明显上升，但总运单量没有明显下降。"
+                value={clarificationState.businessProblem}
+              />
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm leading-6 text-ink/58">
+                系统会先识别业务目标，再生成候选指标口径和后续分析路径。
+              </p>
+              <button
+                className={primaryButtonClassName}
+                data-testid="start-clarification"
+                disabled={
+                  !clarificationState.businessProblem.trim() ||
+                  isEvaluating ||
+                  isGeneratingMetricDefinitions
+                }
+                onClick={handleStartClarification}
+                type="button"
+              >
+                {isGeneratingMetricDefinitions ? "正在澄清…" : "开始澄清"}
+              </button>
+            </div>
+
+            {!hasStarted ? (
+              <StarterExamples
+                examples={starterExamples}
+                onSelectExample={handleSelectStarterExample}
+              />
+            ) : null}
+          </section>
+        );
+
+      case "metric_definition":
+        return (
+          <ClarificationSection
+            eyebrow="Step 2"
+            title={getMetricQuestionTitle(metricDefinitionResult)}
+          >
+            {isGeneratingMetricDefinitions ? (
+              <div className="mt-5 rounded-lg border border-accent/20 bg-accent/10 px-4 py-5 text-sm font-medium text-accent">
+                正在识别指标并生成候选口径……
               </div>
+            ) : (
+              <>
+                {metricDefinitionNotice ? (
+                  <p className="mt-3 rounded-lg border border-ink/10 bg-white/72 px-4 py-3 text-sm leading-6 text-ink/62">
+                    {metricDefinitionNotice}
+                  </p>
+                ) : null}
+                <OptionGrid>
+                  {metricDefinitionResult.cards.map((option) => (
+                    <OptionCard
+                      description={option.description}
+                      definition={option.definition}
+                      key={option.id}
+                      onClick={() => handleSelectMetric(option)}
+                      selected={selectedMetricOptionId === option.id}
+                      title={option.title}
+                    />
+                  ))}
+                </OptionGrid>
+              </>
+            )}
 
-              <div className="mt-5">
-                <label className="sr-only" htmlFor="business-problem">
-                  业务问题
-                </label>
-                <textarea
-                  className="min-h-32 w-full resize-none rounded-lg border border-ink/12 bg-white/76 p-4 text-base leading-7 text-ink outline-none transition focus:border-accent focus:bg-white focus:ring-4 focus:ring-accent/12"
-                  id="business-problem"
-                  onChange={(event) => {
-                    setClarificationState((current) => ({
-                      ...current,
-                      businessProblem: event.target.value,
-                      analysisTarget: "",
-                    }));
-                    setBusinessClarificationResult(null);
-                    setMetricDefinitionNotice("");
-                  }}
-                  placeholder="请用一句话描述你遇到的指标问题，例如：最近 DAU 下降了、转化率变差了，或优惠券核销率下降了。"
-                  value={clarificationState.businessProblem}
+            {selectedMetricOption?.id === "custom" ? (
+              <InlineInput
+                id="custom-metric-definition"
+                label="补充自定义指标口径"
+                onChange={handleCustomMetricChange}
+                placeholder={getCustomMetricPlaceholder(metricDefinitionResult)}
+                value={clarificationState.customMetricDefinition ?? ""}
+              />
+            ) : null}
+          </ClarificationSection>
+        );
+
+      case "comparison_period":
+        return (
+          <ClarificationSection
+            eyebrow="Step 3"
+            title="这次指标异动是和哪个时间段相比？"
+          >
+            <OptionGrid>
+              {comparisonOptions.map((option) => (
+                <OptionCard
+                  description={option.description}
+                  definition={option.definition}
+                  key={option.id}
+                  onClick={() => handleSelectComparison(option)}
+                  selected={selectedComparisonOptionId === option.id}
+                  title={option.title}
                 />
-              </div>
+              ))}
+            </OptionGrid>
 
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm leading-6 text-ink/58">
-                  系统会先识别你提到的指标，再生成候选口径并继续澄清对比周期、分析维度和数据需求。
-                </p>
-                <button
-                  className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-surface transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
-                  data-testid="start-clarification"
-                  disabled={
-                    !clarificationState.businessProblem.trim() ||
-                    isEvaluating ||
-                    isGeneratingMetricDefinitions
-                  }
-                  onClick={handleStartClarification}
-                  type="button"
-                >
-                  开始澄清
-                </button>
-              </div>
-            </section>
+            {selectedComparisonOptionId === "custom" ? (
+              <InlineInput
+                id="custom-comparison-period"
+                label="补充自定义对比周期"
+                onChange={handleCustomComparisonChange}
+                placeholder="请补充具体对比周期，例如：5月1日-5月7日 vs 4月24日-4月30日"
+                value={clarificationState.customComparisonPeriod ?? ""}
+              />
+            ) : null}
+          </ClarificationSection>
+        );
 
-            {hasStarted ? (
-              <ClarificationSection
-                eyebrow="指标口径"
-                title={getMetricQuestionTitle(metricDefinitionResult)}
-              >
-                {isGeneratingMetricDefinitions ? (
-                  <div className="mt-5 rounded-lg border border-accent/20 bg-accent/10 px-4 py-5 text-sm font-medium text-accent">
-                    正在识别指标并生成候选口径……
-                  </div>
-                ) : (
-                  <>
-                    {metricDefinitionNotice ? (
-                      <p className="mt-3 rounded-lg border border-ink/10 bg-white/72 px-4 py-3 text-sm leading-6 text-ink/62">
-                        {metricDefinitionNotice}
-                      </p>
-                    ) : null}
-                    <OptionGrid>
-                      {metricDefinitionResult.cards.map((option) => (
-                        <OptionCard
-                          description={option.description}
-                          definition={option.definition}
-                          key={option.id}
-                          onClick={() => handleSelectMetric(option)}
-                          selected={selectedMetricOptionId === option.id}
-                          title={option.title}
-                        />
-                      ))}
-                    </OptionGrid>
-                  </>
-                )}
+      case "dimensions":
+        return (
+          <ClarificationSection
+            eyebrow="Step 4"
+            title="你希望优先从哪些维度拆解这次指标异动？"
+          >
+            <OptionGrid>
+              {dimensionOptions.map((option) => (
+                <OptionCard
+                  description={option.description}
+                  definition={option.definition}
+                  key={option.id}
+                  multiple
+                  onClick={() => handleToggleDimension(option.id)}
+                  selected={selectedDimensionIds.includes(option.id)}
+                  title={option.title}
+                />
+              ))}
+            </OptionGrid>
 
-                {selectedMetricOption?.id === "custom" ? (
-                  <InlineInput
-                    id="custom-metric-definition"
-                    label="补充自定义指标口径"
-                    onChange={handleCustomMetricChange}
-                    placeholder={getCustomMetricPlaceholder(
-                      metricDefinitionResult,
-                    )}
-                    value={clarificationState.customMetricDefinition ?? ""}
-                  />
-                ) : null}
-              </ClarificationSection>
+            {selectedDimensionIds.includes("custom") ? (
+              <InlineInput
+                id="custom-dimension"
+                label="补充自定义分析维度"
+                onChange={(value) => setCustomDimension(value)}
+                placeholder="请补充当前场景下需要优先拆解的维度……"
+                value={customDimension}
+              />
             ) : null}
 
-            {clarificationState.metricDefinition ? (
-              <ClarificationSection
-                eyebrow="对比周期"
-                title="这次指标异动是和哪个时间段相比？"
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm leading-6 text-ink/58">
+                可以选择多个维度。上传数据后，系统会判断这些维度是否能被实际验证。
+              </p>
+              <button
+                className={primaryButtonClassName}
+                disabled={draftDimensions.length === 0 || isEvaluating}
+                onClick={handleConfirmDimensions}
+                type="button"
               >
-                <OptionGrid>
-                  {comparisonOptions.map((option) => (
-                    <OptionCard
-                      description={option.description}
-                      definition={option.definition}
-                      key={option.id}
-                      onClick={() => handleSelectComparison(option)}
-                      selected={selectedComparisonOptionId === option.id}
-                      title={option.title}
-                    />
-                  ))}
-                </OptionGrid>
+                下一步
+              </button>
+            </div>
+          </ClarificationSection>
+        );
 
-                {selectedComparisonOptionId === "custom" ? (
-                  <InlineInput
-                    id="custom-comparison-period"
-                    label="补充自定义对比周期"
-                    onChange={handleCustomComparisonChange}
-                    placeholder="请补充具体对比周期，例如：5月1日-5月7日 vs 4月24日-4月30日"
-                    value={clarificationState.customComparisonPeriod ?? ""}
-                  />
-                ) : null}
-              </ClarificationSection>
-            ) : null}
+      case "change_factors":
+        return (
+          <ClarificationSection
+            eyebrow="Step 5"
+            title="这段时间是否存在可能影响指标的业务变化？"
+          >
+            <p className="mt-3 text-sm leading-6 text-ink/58">
+              这些信息不会直接作为结论，但会帮助后续分析时判断哪些方向值得优先验证。
+            </p>
+            <OptionGrid>
+              {changeFactorOptions.map((option) => (
+                <OptionCard
+                  description={option.description}
+                  definition={option.definition}
+                  key={option.id}
+                  multiple
+                  onClick={() => handleToggleChangeFactor(option.id)}
+                  selected={selectedChangeFactorIds.includes(option.id)}
+                  title={option.title}
+                />
+              ))}
+            </OptionGrid>
 
-            {clarificationState.comparisonPeriod ? (
-              <ClarificationSection
-                eyebrow="分析维度"
-                title="你希望优先从哪些维度拆解这次指标异动？"
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm leading-6 text-ink/58">
+                “暂无明显变化”和“不确定”为互斥选项，选择后会自动取消其他变化因素。
+              </p>
+              <button
+                className={primaryButtonClassName}
+                disabled={draftChangeFactors.length === 0 || isEvaluating}
+                onClick={handleConfirmChangeFactors}
+                type="button"
               >
-                <OptionGrid>
-                  {dimensionOptions.map((option) => (
-                    <OptionCard
-                      description={option.description}
-                      definition={option.definition}
-                      key={option.id}
-                      multiple
-                      onClick={() => handleToggleDimension(option.id)}
-                      selected={selectedDimensionIds.includes(option.id)}
-                      title={option.title}
-                    />
-                  ))}
-                </OptionGrid>
+                下一步
+              </button>
+            </div>
+          </ClarificationSection>
+        );
 
-                {selectedDimensionIds.includes("custom") ? (
-                  <InlineInput
-                    id="custom-dimension"
-                    label="补充自定义分析维度"
-                    onChange={(value) => setCustomDimension(value)}
-                    placeholder="请补充当前场景下需要优先拆解的维度……"
-                    value={customDimension}
-                  />
-                ) : null}
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm leading-6 text-ink/58">
-                    可以选择多个维度。系统后续会根据你选择的维度生成分析路径，并在上传数据后判断哪些维度可以被实际验证。
-                  </p>
-                  <button
-                    className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-surface transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
-                    disabled={draftDimensions.length === 0 || isEvaluating}
-                    onClick={handleConfirmDimensions}
-                    type="button"
-                  >
-                    确认分析维度
-                  </button>
-                </div>
-              </ClarificationSection>
-            ) : null}
-
-            {clarificationState.dimensions.length > 0 ? (
-              <ClarificationSection
-                eyebrow="近期变化因素"
-                title="这段时间是否存在可能影响指标的业务变化？"
-              >
-                <p className="mt-3 text-sm leading-6 text-ink/58">
-                  这些信息不会直接作为结论，但会帮助后续分析时判断哪些方向值得优先验证。
-                </p>
-                <OptionGrid>
-                  {changeFactorOptions.map((option) => (
-                    <OptionCard
-                      description={option.description}
-                      definition={option.definition}
-                      key={option.id}
-                      multiple
-                      onClick={() => handleToggleChangeFactor(option.id)}
-                      selected={selectedChangeFactorIds.includes(option.id)}
-                      title={option.title}
-                    />
-                  ))}
-                </OptionGrid>
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm leading-6 text-ink/58">
-                    “暂无明显变化”和“不确定”为互斥选项，选择后会自动取消其他变化因素。
-                  </p>
-                  <button
-                    className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-surface transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
-                    disabled={draftChangeFactors.length === 0 || isEvaluating}
-                    onClick={handleConfirmChangeFactors}
-                    type="button"
-                  >
-                    确认变化因素
-                  </button>
-                </div>
-              </ClarificationSection>
-            ) : null}
-
+      case "upload_data":
+        return (
+          <div className="space-y-5">
             <UnderstandingCard
               dataRequirements={dataRequirements}
               isReadyForData={isReadyForData}
               metricDefinitionResult={metricDefinitionResult}
               state={clarificationState}
             />
-
+            <DataNeedsSection dataRequirements={dataRequirements} />
+            <UploadOnlySection
+              isUploading={isUploading}
+              onUploadFiles={handleUploadFiles}
+              taskFeedback={getVisibleTaskFeedback("upload_data")}
+              taskStepIndex={taskStepIndex}
+              uploadError={uploadError}
+              uploadResult={uploadResult}
+            />
             {uploadResult ? (
               <DataFieldUnderstandingCard uploadResult={uploadResult} />
             ) : null}
+          </div>
+        );
 
-            {isReadyForData ? (
-              <>
-                <DataNeedsSection dataRequirements={dataRequirements} />
-                <DataUploadSection
+      case "analysis_plan":
+        return (
+          <div className="space-y-5">
+            {uploadResult ? (
+              <DataFieldUnderstandingCard uploadResult={uploadResult} />
+            ) : null}
+            <section className={panelClassName}>
+              <div>
+                <p className="text-sm font-medium text-accent">Step 7</p>
+                <h2 className="mt-1 text-xl font-semibold text-ink">
+                  生成分析计划
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-ink/62">
+                  基于业务问题、指标口径、字段语义和已选维度生成可执行分析路径。
+                </p>
+              </div>
+              <AnalysisPlanAction
+                analysisPlanError={analysisPlanError}
+                analysisPlanNotice={analysisPlanNotice}
+                isGeneratingAnalysisPlan={isGeneratingAnalysisPlan}
+                onGeneratePlan={handleGenerateAnalysisPlan}
+              />
+              <TaskProgressCard
+                feedback={getVisibleTaskFeedback("analysis_plan")}
+                stepIndex={taskStepIndex}
+              />
+              {analysisPlan ? (
+                <AnalysisPlanSection
                   analysisPlan={analysisPlan}
-                  analysisPlanError={analysisPlanError}
-                  analysisPlanNotice={analysisPlanNotice}
-                  analysisExecutionError={analysisExecutionError}
-                  analysisExecutionResult={analysisExecutionResult}
-                  evidenceError={evidenceError}
-                  evidenceNotice={evidenceNotice}
-                  evidenceResult={evidenceResult}
-                  isUploading={isUploading}
-                  isExecutingAnalysis={isExecutingAnalysis}
-                  isGeneratingAnalysisPlan={isGeneratingAnalysisPlan}
-                  isGeneratingEvidence={isGeneratingEvidence}
-                  isGeneratingReport={isGeneratingReport}
                   isExecutingMetricSpec={isExecutingMetricSpec}
                   metricSpec={metricSpec}
                   metricSpecError={metricSpecError}
                   metricSpecExecutionError={metricSpecExecutionError}
                   metricSpecExecutionResult={metricSpecExecutionResult}
-                  onExecuteAnalysis={handleExecuteBasicAnalysis}
                   onExecuteMetricSpec={handleExecuteMetricSpec}
-                  onGenerateEvidence={handleGenerateEvidenceChain}
-                  onGeneratePlan={handleGenerateAnalysisPlan}
-                  onGenerateReport={handleGenerateReportDraft}
-                  onUploadFiles={handleUploadFiles}
-                  reportDraft={reportDraft}
-                  reportError={reportError}
-                  reportNotice={reportNotice}
-                  uploadError={uploadError}
+                  showMetricSpec={false}
                   uploadResult={uploadResult}
                 />
-              </>
-            ) : null}
+              ) : (
+                <PanelPlaceholder text="生成分析计划后，将展示可执行的分析步骤。" />
+              )}
+            </section>
           </div>
+        );
 
-          <ReadinessPanel readiness={panelReadiness} />
+      case "metric_calculation":
+        return (
+          <div className="space-y-5">
+            <section className={panelClassName}>
+              <div>
+                <p className="text-sm font-medium text-accent">Step 8</p>
+                <h2 className="mt-1 text-xl font-semibold text-ink">
+                  执行指标计算
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-ink/62">
+                  指标计算结果是当前页面的主结论；基础分析仅用于探索记录数和通用分布。
+                </p>
+              </div>
+              <MetricSpecCard
+                isExecutingMetricSpec={isExecutingMetricSpec}
+                metricSpec={metricSpec}
+                metricSpecError={metricSpecError}
+                metricSpecExecutionError={metricSpecExecutionError}
+                metricSpecExecutionResult={metricSpecExecutionResult}
+                onExecuteMetricSpec={handleExecuteMetricSpec}
+                taskFeedback={getVisibleTaskFeedback("metric_calculation")}
+                taskStepIndex={taskStepIndex}
+              />
+            </section>
+            <BasicAnalysisDisclosure
+              analysisExecutionError={analysisExecutionError}
+              analysisExecutionResult={analysisExecutionResult}
+              evidenceError={evidenceError}
+              evidenceNotice={evidenceNotice}
+              evidenceResult={evidenceResult}
+              isExecutingAnalysis={isExecutingAnalysis}
+              isGeneratingEvidence={isGeneratingEvidence}
+              isGeneratingReport={isGeneratingReport}
+              onExecuteAnalysis={handleExecuteBasicAnalysis}
+              onGenerateEvidence={handleGenerateEvidenceChain}
+              onGenerateReport={handleGenerateReportDraft}
+              reportDraft={reportDraft}
+              reportError={reportError}
+              reportNotice={reportNotice}
+              uploadResult={uploadResult}
+            />
+          </div>
+        );
+
+      case "evidence_chain":
+        return (
+          <section className={panelClassName}>
+            <div>
+              <p className="text-sm font-medium text-accent">Step 9</p>
+              <h2 className="mt-1 text-xl font-semibold text-ink">
+                生成证据链
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-ink/62">
+                优先使用上一步的指标计算结果、Top movers 和辅助指标对比来组织证据。
+              </p>
+            </div>
+            {metricSpecExecutionResult ? (
+              <MetricResultSummary result={metricSpecExecutionResult} />
+            ) : null}
+            <EvidenceChainSection
+              evidenceError={evidenceError}
+              evidenceNotice={evidenceNotice}
+              evidenceResult={evidenceResult}
+              isGeneratingEvidence={isGeneratingEvidence}
+              usesMetricExecutionResult={Boolean(metricSpecExecutionResult)}
+              onGenerateEvidence={handleGenerateEvidenceChain}
+            />
+            <TaskProgressCard
+              feedback={getVisibleTaskFeedback("evidence_chain")}
+              stepIndex={taskStepIndex}
+            />
+          </section>
+        );
+
+      case "report_draft":
+        return (
+          <section className={panelClassName}>
+            <div>
+              <p className="text-sm font-medium text-accent">Step 10</p>
+              <h2 className="mt-1 text-xl font-semibold text-ink">
+                生成报告草稿
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-ink/62">
+                将业务问题、指标计算结果、证据链和限制说明整理成可编辑报告。
+              </p>
+            </div>
+            <ReportDraftSection
+              isGeneratingReport={isGeneratingReport}
+              onGenerateReport={handleGenerateReportDraft}
+              reportDraft={reportDraft}
+              reportError={reportError}
+              reportNotice={reportNotice}
+            />
+            <TaskProgressCard
+              feedback={getVisibleTaskFeedback("report_draft")}
+              stepIndex={taskStepIndex}
+            />
+          </section>
+        );
+
+      default:
+        return null;
+    }
+  }
+
+  return (
+    <main className="sova-dark-workspace min-h-screen overflow-x-hidden bg-[#07090d] p-2 text-ink sm:p-4 lg:h-screen lg:overflow-hidden lg:p-6">
+      <style>{`
+        @keyframes workflowStepIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+      <div className="mx-auto flex min-h-[calc(100vh-1rem)] w-full max-w-[1500px] flex-col border-white/8 bg-[#080a0f] sm:min-h-[calc(100vh-2rem)] sm:rounded-[20px] sm:border lg:h-[calc(100vh-3rem)] lg:min-h-0 lg:flex-row lg:overflow-hidden">
+        <WorkspaceSidebar />
+        <div className="min-w-0 flex-1 lg:flex lg:min-h-0 lg:flex-col">
+        <header className="shrink-0 border-b border-white/8 bg-[#080a0f]/92 px-4 py-3 backdrop-blur-xl sm:px-5 lg:h-[72px] lg:py-0">
+          <div className="flex h-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-accent">
+                AI 指标异动分析工作台
+              </p>
+              <h1 className="mt-1 truncate text-lg font-semibold tracking-normal text-ink sm:text-xl">
+                SOVA AI｜指标异动分析工作台
+              </h1>
+              <p className="mt-1 hidden max-w-3xl truncate text-xs leading-5 text-ink/60 2xl:block">
+                从模糊业务问题出发，自动澄清指标口径、执行指标计算，并生成证据链和报告草稿。
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="hidden min-w-[280px] rounded-lg border border-white/8 bg-white/[0.04] px-3 py-2 text-sm text-ink/42 md:block lg:min-w-[340px]">
+                Search analysis, files, reports...
+              </div>
+              <span className="w-fit rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+                Step {activeStepIndex + 1} / {workflowSteps.length}
+              </span>
+              <ApiSettings />
+            </div>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 lg:overflow-hidden">
+        <div className="grid w-full gap-0 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_380px]">
+          <section className="min-w-0 border-b border-white/8 p-4 sm:p-5 lg:flex lg:min-h-0 lg:flex-col lg:border-b-0">
+            <WorkflowStepper
+              activeStepId={activeWorkflowStep.id}
+              completedStepIds={completedWorkflowStepIds}
+              onSelectStep={(stepId) => setActiveStepId(stepId)}
+              steps={workflowSteps}
+            />
+
+            <div
+              className="mx-auto mt-4 w-full max-w-[960px] transition-all duration-200 ease-out lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1"
+              key={activeWorkflowStep.id}
+              style={{ animation: "workflowStepIn 180ms ease-out" }}
+            >
+              {renderWorkflowStep()}
+            </div>
+          </section>
+
+          <WorkflowSidePanel
+            activeStep={activeWorkflowStep}
+            activeStepIndex={activeStepIndex}
+            clarificationState={clarificationState}
+            completedStepIds={completedWorkflowStepIds}
+            isGeneratingAnalysisPlan={isGeneratingAnalysisPlan}
+            isGeneratingEvidence={isGeneratingEvidence}
+            isGeneratingReport={isGeneratingReport}
+            isExecutingMetricSpec={isExecutingMetricSpec}
+            isUploading={isUploading}
+            metricExecutionResult={metricSpecExecutionResult}
+            panelReadiness={panelReadiness}
+            progress={workflowProgress}
+            steps={workflowSteps}
+            taskFeedback={taskFeedback}
+            taskStepIndex={taskStepIndex}
+            uploadResult={uploadResult}
+          />
+        </div>
+        </div>
         </div>
       </div>
     </main>
+  );
+}
+
+function WorkspaceSidebar() {
+  const navigationItems = [
+    { label: "当前分析", active: true, soon: false },
+    { label: "历史分析", active: false, soon: true },
+    { label: "数据文件", active: false, soon: true },
+    { label: "报告草稿", active: false, soon: true },
+    { label: "设置", active: false, soon: true },
+  ];
+
+  return (
+    <aside className="border-b border-white/8 bg-[#0b0d12] px-4 py-4 lg:flex lg:h-full lg:w-[232px] lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:px-4 lg:py-5">
+      <div className="flex items-center justify-between gap-4 lg:block">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="h-8 w-8 rounded-full border border-accent/30 bg-accent/15" />
+            <div>
+              <p className="text-sm font-semibold text-ink">SOVA AI</p>
+              <p className="text-xs text-ink/42">Metric Intelligence</p>
+            </div>
+          </div>
+        </div>
+        <span className="rounded-full border border-accent/20 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent lg:hidden">
+          AI Ready
+        </span>
+      </div>
+
+      <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:mt-8 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
+        {navigationItems.map((item) => (
+          <button
+            aria-disabled={!item.active}
+            className={
+              item.active
+                ? "flex whitespace-nowrap rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-left text-sm font-semibold text-accent lg:w-full"
+                : "flex cursor-not-allowed items-center justify-between gap-3 whitespace-nowrap rounded-lg border border-transparent px-3 py-2 text-left text-sm font-medium text-ink/42 transition hover:border-white/8 hover:bg-white/[0.03] lg:w-full"
+            }
+            key={item.label}
+            title={item.active ? undefined : "后续版本开放"}
+            type="button"
+          >
+            <span>{item.label}</span>
+            {item.soon ? (
+              <span className="rounded-full border border-white/8 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+                Soon
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </nav>
+
+      <div className="mt-auto hidden rounded-xl border border-white/8 bg-white/[0.03] p-3 lg:block">
+        <p className="text-xs font-semibold text-ink/46">工作台状态</p>
+        <p className="mt-2 text-sm font-medium text-ink">本地分析工作台</p>
+        <p className="mt-1 text-xs leading-5 text-ink/42">
+          AI 配置和数据分析流程已保留在当前项目中。
+        </p>
+      </div>
+    </aside>
   );
 }
 
@@ -1119,10 +1621,10 @@ function ClarificationSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-ink/10 bg-surface/86 p-5 shadow-soft backdrop-blur sm:p-6">
+    <section className={panelClassName}>
       <div className="flex flex-col gap-2">
         <p className="text-sm font-medium text-accent">{eyebrow}</p>
-        <h2 className="text-xl font-semibold text-ink">{title}</h2>
+        <h2 className="text-xl font-semibold tracking-normal text-ink">{title}</h2>
       </div>
       {children}
     </section>
@@ -1131,6 +1633,45 @@ function ClarificationSection({
 
 function OptionGrid({ children }: { children: React.ReactNode }) {
   return <div className="mt-5 grid gap-4 md:grid-cols-2">{children}</div>;
+}
+
+function StarterExamples({
+  examples,
+  onSelectExample,
+}: {
+  examples: StarterExample[];
+  onSelectExample: (example: StarterExample) => void;
+}) {
+  return (
+    <details className="mt-4 rounded-lg border border-ink/10 bg-ink/[0.02] p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-ink/66">
+        查看示例问题
+      </summary>
+      <p className="mt-3 text-sm leading-6 text-ink/58">
+        示例只用于帮你理解如何描述问题；点击后只填入输入框，不会自动提交。
+      </p>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {examples.map((example) => (
+          <button
+            className="rounded-md border border-ink/10 bg-white px-3 py-3 text-left transition hover:border-accent/35 hover:bg-accent/5 focus:outline-none focus:ring-4 focus:ring-accent/12"
+            key={example.title}
+            onClick={() => onSelectExample(example)}
+            type="button"
+          >
+            <span className="text-sm font-semibold text-ink">
+              {example.title}
+            </span>
+            <span className="mt-1 block text-sm leading-6 text-ink/66">
+              {example.problem}
+            </span>
+            <span className="mt-2 block text-xs leading-5 text-ink/50">
+              推荐口径：{example.metricDefinition}
+            </span>
+          </button>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function OptionCard({
@@ -1152,8 +1693,8 @@ function OptionCard({
     <button
       className={
         selected
-          ? "min-h-36 rounded-lg border-2 border-accent bg-white p-5 text-left shadow-soft transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-accent/14"
-          : "min-h-36 rounded-lg border border-ink/10 bg-white/70 p-5 text-left transition hover:-translate-y-0.5 hover:border-accent/55 hover:bg-white focus:outline-none focus:ring-4 focus:ring-accent/14"
+          ? "min-h-36 rounded-lg border border-accent bg-white p-5 text-left shadow-sm transition focus:outline-none focus:ring-4 focus:ring-accent/14"
+          : "min-h-36 rounded-lg border border-ink/10 bg-white/76 p-5 text-left transition hover:border-accent/35 hover:bg-white focus:outline-none focus:ring-4 focus:ring-accent/14"
       }
       onClick={onClick}
       type="button"
@@ -1209,6 +1750,739 @@ function InlineInput({
   );
 }
 
+function WorkflowStepper({
+  steps,
+  activeStepId,
+  completedStepIds,
+  onSelectStep,
+}: {
+  steps: WorkflowStep[];
+  activeStepId: WorkflowStepId;
+  completedStepIds: WorkflowStepId[];
+  onSelectStep: (stepId: WorkflowStepId) => void;
+}) {
+  return (
+    <nav className="rounded-2xl border border-white/8 bg-panel/78 p-2 shadow-none backdrop-blur">
+      <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {steps.map((step, index) => {
+          const isActive = step.id === activeStepId;
+          const isCompleted = completedStepIds.includes(step.id);
+          const isClickable = isActive || isCompleted;
+
+          return (
+            <button
+              className={
+                isActive
+                    ? "flex min-w-28 items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-left text-xs font-semibold text-accent transition sm:min-w-32"
+                  : isCompleted
+                    ? "flex min-w-28 items-center gap-2 rounded-md border border-white/8 bg-white/[0.04] px-3 py-2 text-left text-xs font-semibold text-ink transition hover:border-accent/35 hover:text-accent sm:min-w-32"
+                    : "flex min-w-28 items-center gap-2 rounded-md border border-transparent bg-white/[0.02] px-3 py-2 text-left text-xs font-medium text-ink/36 sm:min-w-32"
+              }
+              disabled={!isClickable}
+              key={step.id}
+              onClick={() => onSelectStep(step.id)}
+              type="button"
+            >
+              <span
+                className={
+                  isActive || isCompleted
+                    ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-[11px] font-bold text-white"
+                    : "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 text-[11px] text-ink/42"
+                }
+              >
+                {isCompleted ? "✓" : index + 1}
+              </span>
+              <span className="whitespace-nowrap">{step.shortLabel}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function UploadOnlySection({
+  isUploading,
+  onUploadFiles,
+  taskFeedback,
+  taskStepIndex,
+  uploadError,
+  uploadResult,
+}: {
+  isUploading: boolean;
+  onUploadFiles: (files: File[]) => void;
+  taskFeedback: AsyncTaskFeedback | null;
+  taskStepIndex: number;
+  uploadError: string;
+  uploadResult: UploadResponse | null;
+}) {
+  function handleFileInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    onUploadFiles(Array.from(event.target.files ?? []));
+    event.target.value = "";
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    onUploadFiles(Array.from(event.dataTransfer.files));
+  }
+
+  return (
+          <section className={panelClassName}>
+      <div>
+        <p className="text-sm font-medium text-accent">Step 6</p>
+        <h2 className="mt-1 text-xl font-semibold text-ink">
+          上传与本次指标异动相关的数据
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-ink/62">
+          系统会先识别字段结构和业务语义，再进入分析计划生成。
+        </p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-ink/58">
+        <span className="rounded-full border border-ink/10 bg-white px-3 py-1">
+          支持 CSV
+        </span>
+        <span className="rounded-full border border-ink/10 bg-white px-3 py-1">
+          支持 Excel（.xlsx / .xls）
+        </span>
+      </div>
+
+      <label
+        className="mt-5 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-accent/45 bg-white/72 px-5 py-8 text-center transition hover:border-accent hover:bg-white"
+        htmlFor="workflow-data-files"
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onDrop={handleDrop}
+      >
+        <span className="text-base font-semibold text-ink">
+          点击或拖拽上传数据文件
+        </span>
+        <span className="mt-2 max-w-2xl text-sm leading-6 text-ink/58">
+          如果你只有一个合并后的 CSV 或 Excel，也可以先上传，系统会根据字段判断当前能分析到哪一步。
+        </span>
+        <input
+          accept=".csv,.xlsx,.xls"
+          className="sr-only"
+          id="workflow-data-files"
+          multiple
+          onChange={handleFileInputChange}
+          type="file"
+        />
+      </label>
+
+      {isUploading ? (
+        <p className="mt-4 text-sm font-medium text-accent">
+          正在读取文件并识别字段结构……
+        </p>
+      ) : null}
+
+      <TaskProgressCard feedback={taskFeedback} stepIndex={taskStepIndex} />
+
+      {uploadError ? (
+        <p className="mt-4 whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {uploadError}
+        </p>
+      ) : null}
+
+      {uploadResult ? (
+        <div className="mt-5 rounded-lg border border-white/8 bg-white/[0.04] p-4">
+          <DataUploadSummary uploadResult={uploadResult} />
+          <details className="mt-4 rounded-lg border border-white/8 bg-white/[0.03] p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-ink">
+              查看字段识别详情
+            </summary>
+            <DataSchemaResults uploadResult={uploadResult} />
+          </details>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function BasicAnalysisDisclosure({
+  analysisExecutionError,
+  analysisExecutionResult,
+  evidenceError,
+  evidenceNotice,
+  evidenceResult,
+  isExecutingAnalysis,
+  isGeneratingEvidence,
+  isGeneratingReport,
+  onExecuteAnalysis,
+  onGenerateEvidence,
+  onGenerateReport,
+  reportDraft,
+  reportError,
+  reportNotice,
+  uploadResult,
+}: {
+  analysisExecutionError: string;
+  analysisExecutionResult: AnalysisExecutionResult | null;
+  evidenceError: string;
+  evidenceNotice: string;
+  evidenceResult: EvidenceResult | null;
+  isExecutingAnalysis: boolean;
+  isGeneratingEvidence: boolean;
+  isGeneratingReport: boolean;
+  onExecuteAnalysis: () => void;
+  onGenerateEvidence: () => void;
+  onGenerateReport: () => void;
+  reportDraft: ReportDraft | null;
+  reportError: string;
+  reportNotice: string;
+  uploadResult: UploadResponse | null;
+}) {
+  return (
+    <details className="rounded-lg border border-ink/10 bg-white/78 p-5 shadow-sm backdrop-blur">
+      <summary className="cursor-pointer text-base font-semibold text-ink">
+        辅助探索区：基础分析
+      </summary>
+      <p className="mt-3 rounded-md border border-ink/10 bg-ink/[0.03] px-3 py-2 text-sm leading-6 text-ink/62">
+        基础分析用于探索记录数和通用分布；指标结论请优先参考上方“指标计算结果”。
+      </p>
+      <ExecuteAnalysisAction
+        analysisExecutionError={analysisExecutionError}
+        isExecutingAnalysis={isExecutingAnalysis}
+        onExecuteAnalysis={onExecuteAnalysis}
+      />
+      {analysisExecutionResult ? (
+        <AnalysisExecutionResultSection
+          evidenceError={evidenceError}
+          evidenceNotice={evidenceNotice}
+          evidenceResult={evidenceResult}
+          executionResult={analysisExecutionResult}
+          isGeneratingEvidence={isGeneratingEvidence}
+          isGeneratingReport={isGeneratingReport}
+          onGenerateEvidence={onGenerateEvidence}
+          onGenerateReport={onGenerateReport}
+          reportDraft={reportDraft}
+          reportError={reportError}
+          reportNotice={reportNotice}
+          uploadResult={uploadResult}
+        />
+      ) : null}
+    </details>
+  );
+}
+
+function MetricResultSummary({
+  result,
+}: {
+  result: MetricSpecExecutionResult;
+}) {
+  const overall = result.overall_metric_comparison;
+
+  return (
+    <div className="mt-5 rounded-lg border border-accent/18 bg-accent/8 p-4 text-sm">
+      <p className="font-semibold text-accent">已生成指标计算结果</p>
+      <p className="mt-2 leading-6 text-ink/70">
+        {overall.metric_name}：{formatMetricRate(overall.baseline.rate)} →{" "}
+        {formatMetricRate(overall.current.rate)}，变化{" "}
+        {formatDeltaRate(overall.delta_rate)}。
+      </p>
+      {result.top_movers.length ? (
+        <p className="mt-1 leading-6 text-ink/62">
+          Top movers：{result.top_movers.slice(0, 3).map((item) => `${item.dimension_label} ${item.value}`).join("、")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkflowSidePanel({
+  activeStep,
+  activeStepIndex,
+  clarificationState,
+  completedStepIds,
+  isGeneratingAnalysisPlan,
+  isGeneratingEvidence,
+  isGeneratingReport,
+  isExecutingMetricSpec,
+  isUploading,
+  metricExecutionResult,
+  panelReadiness: _panelReadiness,
+  progress,
+  steps,
+  taskFeedback,
+  taskStepIndex,
+  uploadResult,
+}: {
+  activeStep: WorkflowStep;
+  activeStepIndex: number;
+  clarificationState: ClarificationState;
+  completedStepIds: WorkflowStepId[];
+  isGeneratingAnalysisPlan: boolean;
+  isGeneratingEvidence: boolean;
+  isGeneratingReport: boolean;
+  isExecutingMetricSpec: boolean;
+  isUploading: boolean;
+  metricExecutionResult: MetricSpecExecutionResult | null;
+  panelReadiness: ReadinessState;
+  progress: number;
+  steps: WorkflowStep[];
+  taskFeedback: AsyncTaskFeedback | null;
+  taskStepIndex: number;
+  uploadResult: UploadResponse | null;
+}) {
+  const overall = metricExecutionResult?.overall_metric_comparison;
+  const topMovers = metricExecutionResult?.top_movers.slice(0, 3) ?? [];
+  const auxiliaryMetrics =
+    metricExecutionResult?.auxiliary_metric_comparisons?.slice(0, 2) ?? [];
+  const primaryFile = uploadResult?.files[0] ?? null;
+  const semanticContext = uploadResult?.semantic_context;
+  const isProcessing =
+    isUploading ||
+    isGeneratingAnalysisPlan ||
+    isExecutingMetricSpec ||
+    isGeneratingEvidence ||
+    isGeneratingReport;
+  const stepStatus = getWorkflowStepStatus({
+    activeStepId: activeStep.id,
+    completedStepIds,
+    isProcessing,
+  });
+
+  return (
+    <aside className="m-4 rounded-2xl border border-white/8 bg-panel/88 p-4 shadow-none backdrop-blur sm:m-5 sm:p-5 lg:m-0 lg:h-full lg:max-h-full lg:overflow-y-auto lg:rounded-none lg:border-y-0 lg:border-r-0">
+      <section>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-accent">
+              当前进度
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-ink">
+              {activeStep.label}
+            </h2>
+            <p className="mt-1 text-xs text-ink/46">
+              Step {activeStepIndex + 1} / {steps.length}
+            </p>
+          </div>
+          <WorkflowStatusBadge label={stepStatus} processing={isProcessing} />
+        </div>
+
+        <div className="mt-4">
+          <div className="h-2 overflow-hidden rounded-full bg-ink/[0.06]">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-ink/48">
+            总体进度 {progress}% · 已完成 {completedStepIds.length} / {steps.length}
+          </p>
+        </div>
+      </section>
+
+      <SideTaskStatus feedback={taskFeedback} stepIndex={taskStepIndex} />
+
+      <section className="mt-5">
+        <PanelSectionTitle title="已确认信息" />
+        <div className="mt-3 grid gap-2">
+          <ConfirmedInfoItem
+            label="业务问题"
+            value={clarificationState.businessProblem}
+          />
+          <ConfirmedInfoItem
+            label="指标口径"
+            value={clarificationState.metricDefinition}
+          />
+          <ConfirmedInfoItem
+            label="对比周期"
+            value={clarificationState.comparisonPeriod}
+          />
+          <ConfirmedInfoItem
+            label="分析维度"
+            value={formatCompactList(clarificationState.dimensions, 3)}
+          />
+          <ConfirmedInfoItem
+            label="变化因素"
+            value={formatCompactList(clarificationState.changeFactors, 3)}
+          />
+          <ConfirmedInfoItem
+            label="上传数据"
+            value={uploadResult ? `${uploadResult.files.length} 个文件` : ""}
+          />
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <PanelSectionTitle title="数据状态" />
+        {primaryFile ? (
+          <div className="mt-3 rounded-lg border border-ink/10 bg-surface/70 p-3">
+            <p className="truncate text-sm font-semibold text-ink">
+              {primaryFile.filename}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <MiniStat label="行数" value={formatMetricNumber(primaryFile.row_count)} />
+              <MiniStat label="字段数" value={formatMetricNumber(primaryFile.column_count)} />
+            </div>
+            <div className="mt-3 space-y-2 text-xs leading-5 text-ink/62">
+              <p>
+                <span className="text-ink/42">业务场景：</span>
+                {semanticContext?.business_domain ?? "待识别"}
+              </p>
+              <p>
+                <span className="text-ink/42">候选分子：</span>
+                {formatFieldList(
+                  semanticContext?.primary_metric.candidate_numerator_fields,
+                )}
+              </p>
+              <p>
+                <span className="text-ink/42">候选分母：</span>
+                {formatFieldList(
+                  semanticContext?.primary_metric.candidate_denominator_fields,
+                )}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <PanelPlaceholder text="等待上传数据。" />
+        )}
+      </section>
+
+      <section className="mt-5">
+        <PanelSectionTitle title="核心指标摘要" />
+        {overall ? (
+          <div className="mt-3 rounded-lg border border-accent/18 bg-accent/8 p-4">
+            <p className="text-sm font-semibold text-accent">
+              {overall.metric_name}
+            </p>
+            <p className="mt-2 text-xl font-semibold text-ink">
+              {formatMetricRate(overall.baseline.rate)} →{" "}
+              {formatMetricRate(overall.current.rate)}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-accent">
+              {formatDeltaRate(overall.delta_rate)}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <MiniStat
+                label={`${overall.baseline_label || "上周"}分母`}
+                value={formatMetricNumber(overall.baseline.denominator)}
+              />
+              <MiniStat
+                label={`${overall.current_label || "本周"}分母`}
+                value={formatMetricNumber(overall.current.denominator)}
+              />
+              <MiniStat
+                label={`${overall.baseline_label || "上周"}分子`}
+                value={formatMetricNumber(overall.baseline.numerator)}
+              />
+              <MiniStat
+                label={`${overall.current_label || "本周"}分子`}
+                value={formatMetricNumber(overall.current.numerator)}
+              />
+            </div>
+          </div>
+        ) : (
+          <PanelPlaceholder text="完成指标计算后将在这里显示核心结论。" />
+        )}
+      </section>
+
+      <section className="mt-5">
+        <PanelSectionTitle title="Top movers" />
+        {topMovers.length ? (
+          <ul className="mt-3 space-y-2">
+            {topMovers.map((item) => (
+              <li
+                className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm"
+                key={`${item.dimension_field}-${item.value}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-ink">
+                      {item.value}
+                    </p>
+                    <p className="mt-0.5 text-xs text-ink/46">
+                      {item.dimension_label}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-accent">
+                    {formatDeltaRate(item.delta_rate)}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <PanelPlaceholder text="执行指标计算后显示变化最大的分组。" />
+        )}
+      </section>
+
+      {auxiliaryMetrics.length ? (
+        <section className="mt-5">
+          <PanelSectionTitle title="辅助指标" />
+          <ul className="mt-3 space-y-2">
+            {auxiliaryMetrics.map((item) => (
+              <li
+                className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm"
+                key={item.field}
+              >
+                <p className="font-semibold text-ink">{item.label}</p>
+                <p className="mt-1 text-xs text-ink/62">
+                  {formatMetricAverage(item.baseline_avg)} →{" "}
+                  {formatMetricAverage(item.current_avg)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="mt-5 rounded-lg bg-white/[0.03] p-4">
+        <h3 className="text-sm font-semibold text-ink">下一步建议</h3>
+        <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink/62">
+          {isProcessing ? "系统正在处理，请稍等…" : getNextStepHint(activeStep.id)}
+        </p>
+      </section>
+    </aside>
+  );
+}
+
+function PanelSectionTitle({ title }: { title: string }) {
+  return (
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-ink/46">
+      {title}
+    </h3>
+  );
+}
+
+function TaskProgressCard({
+  feedback,
+  stepIndex,
+}: {
+  feedback: AsyncTaskFeedback | null;
+  stepIndex: number;
+}) {
+  if (!feedback) {
+    return null;
+  }
+
+  const definition = asyncTaskDefinitions[feedback.taskId];
+  const isRunning = feedback.status === "running";
+  const isSuccess = feedback.status === "success";
+  const isError = feedback.status === "error";
+  const title = isRunning
+    ? definition.runningTitle
+    : isSuccess
+      ? definition.successTitle
+      : `${definition.title}失败`;
+
+  return (
+    <div
+      className={
+        isError
+          ? "mt-4 rounded-lg border border-red-200 bg-red-50 p-4"
+          : isSuccess
+            ? "mt-4 rounded-lg border border-accent/25 bg-accent/8 p-4"
+            : "mt-4 rounded-lg border border-ink/10 bg-white p-4"
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p
+            className={
+              isError
+                ? "text-sm font-semibold text-red-700"
+                : "text-sm font-semibold text-ink"
+            }
+          >
+            {title}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-ink/50">
+            {isRunning
+              ? "SOVA AI 正在按步骤处理，请稍等。"
+              : isSuccess
+                ? "任务已完成，结果已更新到当前工作流。"
+                : feedback.errorMessage}
+          </p>
+        </div>
+        <TaskStatusIcon status={feedback.status} />
+      </div>
+
+      <ol className="mt-4 grid gap-2">
+        {definition.steps.map((step, index) => {
+          const isCurrent = isRunning && index === stepIndex;
+          const isDone = isSuccess || (isRunning && index < stepIndex);
+
+          return (
+            <li
+              className={
+                isCurrent
+                  ? "flex items-center gap-3 rounded-md bg-accent/8 px-3 py-2 text-sm text-ink transition-opacity duration-200"
+                  : "flex items-center gap-3 rounded-md px-3 py-2 text-sm text-ink/58"
+              }
+              key={step}
+            >
+              <span
+                className={
+                  isDone
+                    ? "flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white"
+                    : isCurrent
+                      ? "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-accent text-accent"
+                      : isError
+                        ? "h-5 w-5 shrink-0 rounded-full border border-red-200 bg-white"
+                        : "h-5 w-5 shrink-0 rounded-full border border-ink/14 bg-white"
+                }
+              >
+                {isDone ? "✓" : isCurrent ? <SmallSpinner /> : ""}
+              </span>
+              <span className={isCurrent ? "font-medium text-ink" : ""}>
+                {step}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function SideTaskStatus({
+  feedback,
+  stepIndex,
+}: {
+  feedback: AsyncTaskFeedback | null;
+  stepIndex: number;
+}) {
+  if (!feedback) {
+    return null;
+  }
+
+  const definition = asyncTaskDefinitions[feedback.taskId];
+  const currentStep = definition.steps[stepIndex] ?? definition.steps[0];
+  const isRunning = feedback.status === "running";
+  const isError = feedback.status === "error";
+
+  return (
+    <section
+      className={
+        isError
+          ? "mt-5 rounded-lg border border-red-200 bg-red-50 p-4"
+          : "mt-5 rounded-lg border border-accent/20 bg-accent/8 p-4"
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <PanelSectionTitle title="当前任务" />
+          <p className="mt-2 text-sm font-semibold text-ink">
+            系统正在执行：{definition.title}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-ink/58">
+            当前步骤：{isRunning ? currentStep : feedback.status === "success" ? definition.successTitle : feedback.errorMessage}
+          </p>
+        </div>
+        <TaskStatusIcon status={feedback.status} />
+      </div>
+    </section>
+  );
+}
+
+function TaskStatusIcon({ status }: { status: AsyncTaskFeedback["status"] }) {
+  if (status === "running") {
+    return (
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-white text-accent">
+        <SmallSpinner />
+      </span>
+    );
+  }
+
+  if (status === "success") {
+    return (
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-bold text-white transition-transform duration-200">
+        ✓
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-700">
+      !
+    </span>
+  );
+}
+
+function SmallSpinner() {
+  return (
+    <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+  );
+}
+
+function ConfirmedInfoItem({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  const confirmed = Boolean(value?.trim());
+
+  return (
+    <div className="flex items-start gap-2 rounded-lg bg-white/[0.03] px-3 py-2">
+      <span
+        className={
+          confirmed
+            ? "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white"
+            : "mt-0.5 h-4 w-4 shrink-0 rounded-full border border-ink/16 bg-ink/[0.03]"
+        }
+      >
+        {confirmed ? "✓" : ""}
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-ink/42">{label}</p>
+        <p
+          className={
+            confirmed
+              ? "mt-0.5 line-clamp-2 text-sm leading-5 text-ink/72"
+              : "mt-0.5 text-sm leading-5 text-ink/34"
+          }
+        >
+          {confirmed ? value : "待确认"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowStatusBadge({
+  label,
+  processing,
+}: {
+  label: string;
+  processing: boolean;
+}) {
+  return (
+    <span
+      className={
+        processing
+          ? "rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent"
+          : "rounded-full border border-ink/10 bg-ink/[0.03] px-3 py-1 text-xs font-semibold text-ink/58"
+      }
+    >
+      {label}
+    </span>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-white/[0.04] px-2.5 py-2">
+      <p className="text-[11px] text-ink/42">{label}</p>
+      <p className="mt-0.5 font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function PanelPlaceholder({ text }: { text: string }) {
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-ink/12 bg-ink/[0.02] px-4 py-4 text-sm leading-6 text-ink/48">
+      <p>{text}</p>
+    </div>
+  );
+}
+
 function UnderstandingCard({
   dataRequirements,
   state,
@@ -1222,7 +2496,7 @@ function UnderstandingCard({
 }) {
   if (isReadyForData) {
     return (
-      <section className="rounded-lg border border-ink/10 bg-white/78 p-5 shadow-soft backdrop-blur sm:p-6">
+      <section className="rounded-lg border border-ink/10 bg-white/86 p-5 shadow-sm backdrop-blur sm:p-6">
         <p className="text-sm font-medium text-accent">当前理解摘要</p>
         <p className="mt-3 text-base leading-7 text-ink/76">
           当前已将用户的模糊业务问题整理为一个可执行的指标异动分析任务。下一步需要上传相关数据，用于验证指标异动是否真实存在，并进一步拆解主要贡献因素。
@@ -1281,7 +2555,7 @@ function UnderstandingCard({
   }
 
   return (
-    <section className="rounded-lg border border-ink/10 bg-white/72 p-5 shadow-soft backdrop-blur sm:p-6">
+    <section className="rounded-lg border border-ink/10 bg-white/86 p-5 shadow-sm backdrop-blur sm:p-6">
       <p className="text-sm font-medium text-accent">当前理解</p>
       <p className="mt-3 text-base leading-7 text-ink/76">{summary}</p>
     </section>
@@ -1297,7 +2571,7 @@ function DataFieldUnderstandingCard({ uploadResult }: { uploadResult: UploadResp
       .slice(0, 12) ?? [];
 
   return (
-    <section className="rounded-lg border border-accent/20 bg-white/78 p-5 shadow-soft backdrop-blur sm:p-6">
+    <section className="rounded-lg border border-ink/10 bg-white/86 p-5 shadow-sm backdrop-blur sm:p-6">
       <p className="text-sm font-medium text-accent">数据字段理解</p>
       <p className="mt-3 text-base leading-7 text-ink/76">
         以下理解基于当前业务问题、已选择口径和上传字段结构生成，后续分析会尽量基于这些语义进行。
@@ -1407,7 +2681,7 @@ function DataNeedsSection({
     : ["指标发生时间字段", "指标分子和分母或目标结果字段", "核心业务对象 ID 字段", "可用于拆解的分层、场景或环境字段"];
 
   return (
-    <section className="rounded-lg border border-accent/25 bg-white/78 p-5 shadow-soft backdrop-blur sm:p-6">
+    <section className="rounded-lg border border-ink/10 bg-white/86 p-5 shadow-sm backdrop-blur sm:p-6">
       <p className="text-sm font-medium text-accent">下一步需要的数据</p>
       <h2 className="mt-2 text-xl font-semibold text-ink">
         为了继续分析，建议准备以下数据
@@ -1502,7 +2776,7 @@ function DataUploadSection({
   }
 
   return (
-    <section className="rounded-lg border border-ink/10 bg-surface/86 p-5 shadow-soft backdrop-blur sm:p-6">
+          <section className={panelClassName}>
       <div className="flex flex-col gap-2">
         <p className="text-sm font-medium text-accent">上传数据</p>
         <h2 className="text-xl font-semibold text-ink">
@@ -1589,11 +2863,12 @@ function DataUploadSection({
                 <>
                   <EvidenceChainSection
                     evidenceError={evidenceError}
-                    evidenceNotice={evidenceNotice}
-                    evidenceResult={evidenceResult}
-                    isGeneratingEvidence={isGeneratingEvidence}
-                    onGenerateEvidence={onGenerateEvidence}
-                  />
+                  evidenceNotice={evidenceNotice}
+                  evidenceResult={evidenceResult}
+                  isGeneratingEvidence={isGeneratingEvidence}
+                  usesMetricExecutionResult={false}
+                  onGenerateEvidence={onGenerateEvidence}
+                />
                   <ReportDraftSection
                     isGeneratingReport={isGeneratingReport}
                     onGenerateReport={onGenerateReport}
@@ -1661,7 +2936,7 @@ function AnalysisPlanAction({
   return (
     <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
       <button
-        className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-surface transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
+        className={primaryButtonClassName}
         disabled={isGeneratingAnalysisPlan}
         onClick={onGeneratePlan}
         type="button"
@@ -1686,6 +2961,7 @@ function AnalysisPlanSection({
   metricSpecExecutionError,
   metricSpecExecutionResult,
   onExecuteMetricSpec,
+  showMetricSpec = true,
   uploadResult,
 }: {
   analysisPlan: AnalysisPlan;
@@ -1695,6 +2971,7 @@ function AnalysisPlanSection({
   metricSpecExecutionError: string;
   metricSpecExecutionResult: MetricSpecExecutionResult | null;
   onExecuteMetricSpec: () => void;
+  showMetricSpec?: boolean;
   uploadResult: UploadResponse | null;
 }) {
   const relevantLimitations = getRelevantLimitations(
@@ -1703,7 +2980,7 @@ function AnalysisPlanSection({
   );
 
   return (
-    <section className="mt-6 rounded-lg border border-accent/25 bg-white/82 p-5 shadow-soft">
+    <section className="mt-6 rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
       <p className="text-sm font-medium text-accent">分析计划</p>
       <div className="mt-4 grid gap-4">
         <AnalysisPlanCard title="分析目标">
@@ -1785,14 +3062,18 @@ function AnalysisPlanSection({
           </div>
         </AnalysisPlanCard>
 
-        <MetricSpecCard
-          isExecutingMetricSpec={isExecutingMetricSpec}
-          metricSpec={metricSpec}
-          metricSpecError={metricSpecError}
-          metricSpecExecutionError={metricSpecExecutionError}
-          metricSpecExecutionResult={metricSpecExecutionResult}
-          onExecuteMetricSpec={onExecuteMetricSpec}
-        />
+        {showMetricSpec ? (
+          <MetricSpecCard
+            isExecutingMetricSpec={isExecutingMetricSpec}
+            metricSpec={metricSpec}
+            metricSpecError={metricSpecError}
+            metricSpecExecutionError={metricSpecExecutionError}
+            metricSpecExecutionResult={metricSpecExecutionResult}
+            onExecuteMetricSpec={onExecuteMetricSpec}
+            taskFeedback={null}
+            taskStepIndex={0}
+          />
+        ) : null}
 
         {relevantLimitations.length ? (
           <AnalysisPlanCard title="当前限制">
@@ -1828,7 +3109,7 @@ function ExecuteAnalysisAction({
   return (
     <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
       <button
-        className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
+        className={primaryButtonClassName}
         disabled={isExecutingAnalysis}
         onClick={onExecuteAnalysis}
         type="button"
@@ -1877,7 +3158,7 @@ function AnalysisExecutionResultSection({
   );
 
   return (
-    <section className="mt-6 rounded-lg border border-accent/25 bg-white/82 p-5 shadow-soft">
+    <section className="mt-6 rounded-lg border border-ink/10 bg-white p-5 shadow-sm">
       <p className="text-sm font-medium text-accent">分析执行结果</p>
       <p className="mt-3 text-base leading-7 text-ink/76">
         {executionResult.execution_summary}
@@ -1888,6 +3169,7 @@ function AnalysisExecutionResultSection({
         evidenceNotice={evidenceNotice}
         evidenceResult={evidenceResult}
         isGeneratingEvidence={isGeneratingEvidence}
+        usesMetricExecutionResult={false}
         onGenerateEvidence={onGenerateEvidence}
       />
       <ReportDraftSection
@@ -2008,6 +3290,8 @@ function MetricSpecCard({
   metricSpecExecutionError,
   metricSpecExecutionResult,
   onExecuteMetricSpec,
+  taskFeedback,
+  taskStepIndex,
 }: {
   isExecutingMetricSpec: boolean;
   metricSpec: MetricSpec | null;
@@ -2015,6 +3299,8 @@ function MetricSpecCard({
   metricSpecExecutionError: string;
   metricSpecExecutionResult: MetricSpecExecutionResult | null;
   onExecuteMetricSpec: () => void;
+  taskFeedback: AsyncTaskFeedback | null;
+  taskStepIndex: number;
 }) {
   if (metricSpecError) {
     return (
@@ -2104,7 +3390,7 @@ function MetricSpecCard({
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <button
-          className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
+          className={primaryButtonClassName}
           disabled={isExecutingMetricSpec}
           onClick={onExecuteMetricSpec}
           type="button"
@@ -2118,9 +3404,13 @@ function MetricSpecCard({
         ) : null}
       </div>
 
+      <TaskProgressCard feedback={taskFeedback} stepIndex={taskStepIndex} />
+
       {metricSpecExecutionResult ? (
         <MetricSpecExecutionSection result={metricSpecExecutionResult} />
-      ) : null}
+      ) : (
+        <PanelPlaceholder text="执行指标计算后，将展示核心指标变化、Top movers 和辅助指标对比。" />
+      )}
     </AnalysisPlanCard>
   );
 }
@@ -2131,71 +3421,104 @@ function MetricSpecExecutionSection({
   result: MetricSpecExecutionResult;
 }) {
   const overall = result.overall_metric_comparison;
-  const summaryItems = [
-    {
-      label: `${overall.baseline_label || "上周"}分母`,
-      value: formatMetricNumber(overall.baseline.denominator),
-    },
-    {
-      label: `${overall.baseline_label || "上周"}分子`,
-      value: formatMetricNumber(overall.baseline.numerator),
-    },
-    {
-      label: `${overall.baseline_label || "上周"}指标率`,
-      value: formatMetricRate(overall.baseline.rate),
-    },
-    {
-      label: `${overall.current_label || "本周"}分母`,
-      value: formatMetricNumber(overall.current.denominator),
-    },
-    {
-      label: `${overall.current_label || "本周"}分子`,
-      value: formatMetricNumber(overall.current.numerator),
-    },
-    {
-      label: `${overall.current_label || "本周"}指标率`,
-      value: formatMetricRate(overall.current.rate),
-    },
-    {
-      label: "变化百分点",
-      value: formatDeltaRate(overall.delta_rate),
-    },
-  ];
+  const topMovers = result.top_movers.slice(0, 5);
+  const visibleBreakdowns = result.dimension_breakdowns.slice(0, 2);
+  const hiddenBreakdowns = result.dimension_breakdowns.slice(2);
 
   return (
     <div className="mt-5 space-y-5 border-t border-ink/10 pt-5">
-      <section>
-        <h4 className="text-base font-semibold text-ink">指标计算结果</h4>
-        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
-          {summaryItems.map((item) => (
+      <section className="rounded-lg border border-accent/25 bg-white p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-medium text-accent">主结论区</p>
+            <h4 className="mt-1 text-xl font-semibold text-ink">
+              {overall.metric_name}
+            </h4>
+            <p className="mt-2 text-sm leading-6 text-ink/58">
+              核心指标对比是当前页面的主结论；后续 Top movers、辅助指标和维度拆解用于解释变化来源。
+            </p>
+          </div>
+          <DeltaBadge value={overall.delta_rate} />
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          <div className="rounded-lg border border-ink/10 bg-surface/70 p-4">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+              <MetricRateBlock
+                label={overall.baseline_label || "上周"}
+                rate={overall.baseline.rate}
+              />
+              <span className="text-xl font-semibold text-ink/30">→</span>
+              <MetricRateBlock
+                label={overall.current_label || "本周"}
+                rate={overall.current.rate}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-1">
             <SummaryItem
-              key={item.label}
-              label={item.label}
-              value={item.value}
+              label={`${overall.baseline_label || "上周"}分母`}
+              value={formatMetricNumber(overall.baseline.denominator)}
             />
-          ))}
+            <SummaryItem
+              label={`${overall.current_label || "本周"}分母`}
+              value={formatMetricNumber(overall.current.denominator)}
+            />
+            <SummaryItem
+              label={`${overall.baseline_label || "上周"}分子`}
+              value={formatMetricNumber(overall.baseline.numerator)}
+            />
+            <SummaryItem
+              label={`${overall.current_label || "本周"}分子`}
+              value={formatMetricNumber(overall.current.numerator)}
+            />
+          </div>
         </div>
       </section>
 
-      {result.top_movers.length ? (
-        <section>
-          <h4 className="text-base font-semibold text-ink">Top 异动分组</h4>
+      {topMovers.length ? (
+        <section className="rounded-lg border border-ink/10 bg-white p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-accent">解释区</p>
+              <h4 className="mt-1 text-base font-semibold text-ink">
+                Top movers
+              </h4>
+            </div>
+            <span className="rounded-full border border-ink/10 bg-surface px-3 py-1 text-xs font-medium text-ink/58">
+              前 {topMovers.length} 个高异动分组
+            </span>
+          </div>
           <div className="mt-3 grid gap-2">
-            {result.top_movers.map((item) => (
+            {topMovers.map((item) => (
               <div
-                className="rounded-md border border-accent/18 bg-accent/8 px-3 py-3 text-sm"
+                className="rounded-md border border-ink/10 bg-surface/60 px-3 py-3 text-sm"
                 key={`${item.dimension_field}-${item.value}`}
               >
-                <p className="font-semibold text-accent">
-                  {item.dimension_label}：{item.value}
-                </p>
-                <p className="mt-1 text-ink/66">
-                  {formatMetricRate(item.baseline_rate)} →{" "}
-                  {formatMetricRate(item.current_rate)}，
-                  变化 {formatDeltaRate(item.delta_rate)}，本周样本{" "}
-                  {formatMetricNumber(item.current_denominator)}。
-                </p>
-                <p className="mt-1 text-xs text-ink/46">{item.reason}</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-ink/46">
+                      {item.dimension_label}
+                    </p>
+                    <p className="mt-1 font-semibold text-ink">{item.value}</p>
+                    <p className="mt-1 text-xs leading-5 text-ink/50">
+                      {item.reason}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-left sm:text-right">
+                    <p className="text-sm font-semibold text-ink">
+                      {formatMetricRate(item.baseline_rate)} →{" "}
+                      {formatMetricRate(item.current_rate)}
+                    </p>
+                    <p className={getDeltaTextClass(item.delta_rate)}>
+                      {formatDeltaRate(item.delta_rate)}
+                    </p>
+                    <p className="mt-1 text-xs text-ink/46">
+                      本周样本量 {formatMetricNumber(item.current_denominator)}
+                    </p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -2203,8 +3526,11 @@ function MetricSpecExecutionSection({
       ) : null}
 
       {result.auxiliary_metric_comparisons?.length ? (
-        <section>
+        <section className="rounded-lg border border-ink/10 bg-white p-5">
           <h4 className="text-base font-semibold text-ink">辅助指标对比</h4>
+          <p className="mt-1 text-sm leading-6 text-ink/58">
+            用于判断辅助字段是否与核心指标变化同步移动。
+          </p>
           <div className="mt-3 overflow-x-auto rounded-lg border border-ink/8 bg-white">
             <table className="w-full min-w-[680px] border-collapse text-left text-xs">
               <thead>
@@ -2243,14 +3569,34 @@ function MetricSpecExecutionSection({
       ) : null}
 
       {result.dimension_breakdowns.length ? (
-        <section className="space-y-4">
+        <section className="rounded-lg border border-ink/10 bg-white p-5">
           <h4 className="text-base font-semibold text-ink">维度拆解结果</h4>
-          {result.dimension_breakdowns.map((breakdown) => (
-            <MetricDimensionBreakdownTable
-              breakdown={breakdown}
-              key={breakdown.dimension_field}
-            />
-          ))}
+          <p className="mt-1 text-sm leading-6 text-ink/58">
+            默认展示前 {visibleBreakdowns.length} 个维度，更多明细折叠保留，避免一次性铺满页面。
+          </p>
+          <div className="mt-4 space-y-4">
+            {visibleBreakdowns.map((breakdown) => (
+              <MetricDimensionBreakdownTable
+                breakdown={breakdown}
+                key={breakdown.dimension_field}
+              />
+            ))}
+          </div>
+          {hiddenBreakdowns.length ? (
+            <details className="mt-4 rounded-lg border border-ink/10 bg-surface/60 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-ink">
+                查看其余 {hiddenBreakdowns.length} 个维度拆解
+              </summary>
+              <div className="mt-4 space-y-4">
+                {hiddenBreakdowns.map((breakdown) => (
+                  <MetricDimensionBreakdownTable
+                    breakdown={breakdown}
+                    key={breakdown.dimension_field}
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
         </section>
       ) : null}
 
@@ -2268,6 +3614,59 @@ function MetricSpecExecutionSection({
       ) : null}
     </div>
   );
+}
+
+function MetricRateBlock({
+  label,
+  rate,
+}: {
+  label: string;
+  rate: number | null;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-ink/46">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-normal text-ink">
+        {formatMetricRate(rate)}
+      </p>
+    </div>
+  );
+}
+
+function DeltaBadge({ value }: { value: number | null }) {
+  const className =
+    value === null || Number.isNaN(value)
+      ? "border-ink/10 bg-ink/[0.03] text-ink/58"
+      : value > 0
+        ? "border-red-200 bg-red-50 text-red-700"
+        : value < 0
+          ? "border-accent/25 bg-accent/10 text-accent"
+          : "border-ink/10 bg-ink/[0.03] text-ink/58";
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${className}`}>
+      <p className="text-xs font-medium">变化百分点</p>
+      <p className="mt-1 text-2xl font-semibold tracking-normal">
+        {formatDeltaRate(value)}
+      </p>
+    </div>
+  );
+}
+
+function getDeltaTextClass(value: number | null) {
+  if (value === null || Number.isNaN(value)) {
+    return "mt-1 text-sm font-semibold text-ink/58";
+  }
+
+  if (value > 0) {
+    return "mt-1 text-sm font-semibold text-red-700";
+  }
+
+  if (value < 0) {
+    return "mt-1 text-sm font-semibold text-accent";
+  }
+
+  return "mt-1 text-sm font-semibold text-ink/58";
 }
 
 function MetricDimensionBreakdownTable({
@@ -2338,6 +3737,128 @@ function hasAuxiliaryMetricComparisons(
   result: MetricSpecExecutionResult | null,
 ) {
   return Boolean(result?.auxiliary_metric_comparisons?.length);
+}
+
+function getCompletedWorkflowStepIds({
+  state,
+  hasStarted,
+  uploadResult,
+  analysisPlan,
+  metricSpecExecutionResult,
+  evidenceResult,
+  reportDraft,
+}: {
+  state: ClarificationState;
+  hasStarted: boolean;
+  uploadResult: UploadResponse | null;
+  analysisPlan: AnalysisPlan | null;
+  metricSpecExecutionResult: MetricSpecExecutionResult | null;
+  evidenceResult: EvidenceResult | null;
+  reportDraft: ReportDraft | null;
+}) {
+  const completed: WorkflowStepId[] = [];
+
+  if (hasStarted && state.businessProblem.trim()) {
+    completed.push("business_problem");
+  }
+
+  if (state.metricDefinition) {
+    completed.push("metric_definition");
+  }
+
+  if (state.comparisonPeriod) {
+    completed.push("comparison_period");
+  }
+
+  if (state.dimensions.length) {
+    completed.push("dimensions");
+  }
+
+  if (state.changeFactors.length) {
+    completed.push("change_factors");
+  }
+
+  if (uploadResult) {
+    completed.push("upload_data");
+  }
+
+  if (analysisPlan) {
+    completed.push("analysis_plan");
+  }
+
+  if (metricSpecExecutionResult) {
+    completed.push("metric_calculation");
+  }
+
+  if (evidenceResult) {
+    completed.push("evidence_chain");
+  }
+
+  if (reportDraft) {
+    completed.push("report_draft");
+  }
+
+  return completed;
+}
+
+function getNextStepHint(stepId: WorkflowStepId) {
+  const hintMap: Record<WorkflowStepId, string> = {
+    business_problem: "先用自然语言描述业务指标异动，系统会生成后续澄清选项。",
+    metric_definition: "选择最贴近业务口径的指标定义，或补充自定义口径。",
+    comparison_period: "确认本次异动要比较的时间窗口。",
+    dimensions: "选择最想优先排查的拆解维度，后续会和上传字段做语义匹配。",
+    change_factors: "补充近期业务变化，帮助证据链区分事实、线索和限制。",
+    upload_data: "上传 CSV 或 Excel，完成字段结构和语义识别。",
+    analysis_plan: "生成分析计划，确认哪些维度和字段可以被实际验证。",
+    metric_calculation: "执行指标计算，优先查看本周 vs 上周的真实指标变化和 Top movers。",
+    evidence_chain: "生成证据链，把指标变化、分子分母和 Top movers 组织为可解释证据。",
+    report_draft: "生成报告草稿，再基于业务语境人工审阅和补充结论。",
+  };
+
+  return hintMap[stepId];
+}
+
+function getWorkflowStepStatus({
+  activeStepId,
+  completedStepIds,
+  isProcessing,
+}: {
+  activeStepId: WorkflowStepId;
+  completedStepIds: WorkflowStepId[];
+  isProcessing: boolean;
+}) {
+  if (isProcessing) {
+    return "处理中";
+  }
+
+  if (completedStepIds.includes(activeStepId)) {
+    return "已完成";
+  }
+
+  if (completedStepIds.length === 0 && activeStepId === "business_problem") {
+    return "未开始";
+  }
+
+  return activeStepId === "business_problem" ? "进行中" : "等待用户操作";
+}
+
+function formatFieldList(fields?: string[] | null) {
+  if (!fields?.length) {
+    return "待识别";
+  }
+
+  return fields.slice(0, 3).join("、");
+}
+
+function formatCompactList(items: string[], visibleCount: number) {
+  if (!items.length) {
+    return "";
+  }
+
+  const visibleItems = items.slice(0, visibleCount).join("、");
+  const hiddenCount = items.length - visibleCount;
+
+  return hiddenCount > 0 ? `${visibleItems} +${hiddenCount}` : visibleItems;
 }
 
 function formatMetricNumber(value: number) {
@@ -2436,6 +3957,44 @@ function StatusBadge({
   );
 }
 
+function DataUploadSummary({ uploadResult }: { uploadResult: UploadResponse }) {
+  const totalRows = uploadResult.files.reduce(
+    (sum, file) => sum + file.row_count,
+    0,
+  );
+  const totalColumns = uploadResult.files.reduce(
+    (sum, file) => sum + file.column_count,
+    0,
+  );
+  const primaryFile = uploadResult.files[0];
+
+  return (
+    <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-ink">数据已识别</h3>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-ink/58">
+            已上传 {uploadResult.files.length} 个文件，字段明细和样例数据已默认折叠，避免打断当前分析流程。
+          </p>
+        </div>
+        <span className="w-fit rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+          Ready
+        </span>
+      </div>
+
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+        <SummaryItem label="主文件" value={primaryFile?.filename ?? "待识别"} />
+        <SummaryItem label="总行数" value={totalRows.toLocaleString("zh-CN")} />
+        <SummaryItem label="字段数" value={totalColumns.toLocaleString("zh-CN")} />
+        <SummaryItem
+          label="识别场景"
+          value={uploadResult.semantic_context?.business_domain ?? "待识别"}
+        />
+      </dl>
+    </div>
+  );
+}
+
 function DataSchemaResults({ uploadResult }: { uploadResult: UploadResponse }) {
   const supportedItems =
     uploadResult.semantic_context?.supported_analysis?.length
@@ -2529,40 +4088,50 @@ function FileSchemaCard({ file }: { file: UploadFileSchema }) {
         />
       </div>
 
-      <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-ink/10 text-xs text-ink/48">
-              <th className="py-2 pr-4 font-medium">原始字段名</th>
-              <th className="py-2 pr-4 font-medium">清洗后字段名</th>
-              <th className="py-2 pr-4 font-medium">字段类型</th>
-              <th className="py-2 pr-4 font-medium">缺失率</th>
-              <th className="py-2 pr-4 font-medium">样例值</th>
-            </tr>
-          </thead>
-          <tbody>
-            {file.columns.map((column) => (
-              <tr className="border-b border-ink/6" key={column.clean_name}>
-                <td className="py-3 pr-4 text-ink/76">{column.original_name}</td>
-                <td className="py-3 pr-4 font-medium text-ink">
-                  {column.clean_name}
-                </td>
-                <td className="py-3 pr-4 text-ink/66">{column.dtype}</td>
-                <td className="py-3 pr-4 text-ink/66">
-                  {formatMissingRate(column.missing_rate)}
-                </td>
-                <td className="max-w-xs py-3 pr-4 text-ink/58">
-                  {formatSampleValues(column.sample_values)}
-                </td>
+      <details className="mt-5 rounded-md border border-ink/8 bg-surface/60 p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-ink">
+          查看字段明细
+        </summary>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-ink/10 text-xs text-ink/48">
+                <th className="py-2 pr-4 font-medium">原始字段名</th>
+                <th className="py-2 pr-4 font-medium">清洗后字段名</th>
+                <th className="py-2 pr-4 font-medium">字段类型</th>
+                <th className="py-2 pr-4 font-medium">缺失率</th>
+                <th className="py-2 pr-4 font-medium">样例值</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {file.columns.map((column) => (
+                <tr className="border-b border-ink/6" key={column.clean_name}>
+                  <td className="py-3 pr-4 text-ink/76">{column.original_name}</td>
+                  <td className="py-3 pr-4 font-medium text-ink">
+                    {column.clean_name}
+                  </td>
+                  <td className="py-3 pr-4 text-ink/66">{column.dtype}</td>
+                  <td className="py-3 pr-4 text-ink/66">
+                    {formatMissingRate(column.missing_rate)}
+                  </td>
+                  <td className="max-w-xs py-3 pr-4 text-ink/58">
+                    {formatSampleValues(column.sample_values)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
 
       <div className="mt-5">
         <h4 className="text-sm font-semibold text-ink">前 5 行样例数据</h4>
-        <SampleRowsTable file={file} />
+        <details className="mt-3 rounded-md border border-ink/8 bg-surface/60 p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-ink">
+            查看前 5 行样例
+          </summary>
+          <SampleRowsTable file={file} />
+        </details>
       </div>
     </article>
   );

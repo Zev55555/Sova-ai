@@ -8,6 +8,7 @@ type EvidenceChainSectionProps = {
   evidenceError: string;
   evidenceNotice: string;
   isGeneratingEvidence: boolean;
+  usesMetricExecutionResult: boolean;
   onGenerateEvidence: () => void;
 };
 
@@ -31,19 +32,21 @@ export function EvidenceChainSection({
   evidenceError,
   evidenceNotice,
   isGeneratingEvidence,
+  usesMetricExecutionResult,
   onGenerateEvidence,
 }: EvidenceChainSectionProps) {
   return (
-    <section className="mt-6 rounded-lg border border-accent/25 bg-white/82 p-5 shadow-soft">
+    <section className="mt-6 rounded-2xl border border-white/8 bg-panel/88 p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-accent">证据链</p>
+          <p className="text-sm font-medium text-accent">证据输出区</p>
+          <h3 className="mt-1 text-lg font-semibold text-ink">证据链</h3>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-ink/66">
-            系统会把结果表和图表转化为可追踪的分析发现。以下内容为当前数据支持的初步判断，不代表最终因果结论。
+            系统会把指标变化、Top movers 和相关结果组织成可追踪的数据发现。
           </p>
         </div>
         <button
-          className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-surface transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-ink/35"
+          className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent/85 focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/40"
           disabled={isGeneratingEvidence}
           onClick={onGenerateEvidence}
           type="button"
@@ -64,11 +67,17 @@ export function EvidenceChainSection({
         </p>
       ) : null}
 
+      {usesMetricExecutionResult && evidenceResult ? (
+        <p className="mt-4 rounded-md border border-accent/20 bg-accent/10 px-4 py-3 text-sm font-medium text-accent">
+          已基于指标计算结果生成证据链
+        </p>
+      ) : null}
+
       {evidenceResult ? (
         <div className="mt-5 space-y-4">
           <section className="rounded-lg border border-ink/10 bg-surface/70 p-4">
-            <h3 className="text-base font-semibold text-ink">初步摘要</h3>
-            <p className="mt-2 text-sm leading-6 text-ink/66">
+            <h3 className="text-base font-semibold text-ink">发现摘要</h3>
+            <p className="mt-2 line-clamp-3 text-sm leading-6 text-ink/66">
               {evidenceResult.summary}
             </p>
           </section>
@@ -77,7 +86,7 @@ export function EvidenceChainSection({
             <div className="space-y-4">
               {evidenceResult.evidence_chains.map((chain) => (
                 <article
-                  className="rounded-lg border border-ink/10 bg-white p-4"
+                  className="rounded-xl border border-white/8 bg-white/[0.04] p-5"
                   key={chain.id}
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -96,9 +105,9 @@ export function EvidenceChainSection({
                   </EvidenceBlock>
 
                   <EvidenceBlock title="数据证据">
-                    <ul className="space-y-2">
+                    <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
                       {chain.evidence.map((item) => (
-                        <li className="rounded-md bg-ink/[0.04] px-3 py-2" key={item}>
+                        <li className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-2" key={item}>
                           {item}
                         </li>
                       ))}
@@ -128,17 +137,17 @@ export function EvidenceChainSection({
               ))}
             </div>
           ) : (
-            <p className="rounded-md border border-ink/10 bg-white px-4 py-3 text-sm leading-6 text-ink/62">
+            <p className="rounded-md border border-white/8 bg-white/[0.04] px-4 py-3 text-sm leading-6 text-ink/62">
               当前结果暂不足以生成证据链，请补充更多字段或重新执行分析。
             </p>
           )}
 
           {evidenceResult.limitations.length ? (
-            <section className="rounded-lg border border-ink/10 bg-white p-4">
-              <h3 className="text-base font-semibold text-ink">当前限制</h3>
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <h3 className="text-base font-semibold text-amber-800">当前限制</h3>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-ink/66">
                 {evidenceResult.limitations.map((item) => (
-                  <li className="rounded-md bg-ink/[0.04] px-3 py-2" key={item}>
+                  <li className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-2" key={item}>
                     {item}
                   </li>
                 ))}
@@ -146,7 +155,11 @@ export function EvidenceChainSection({
             </section>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <p className="mt-4 rounded-lg border border-dashed border-ink/12 bg-ink/[0.02] px-4 py-4 text-sm leading-6 text-ink/46">
+          生成证据链后，将展示可追踪的数据发现。
+        </p>
+      )}
     </section>
   );
 }

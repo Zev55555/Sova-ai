@@ -9,11 +9,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#101316",
-        panel: "#171b20",
-        surface: "#f4f6f7",
-        line: "#dbe2e5",
-        accent: "#1f8a70",
+        ink: "#f4f7fb",
+        panel: "#111318",
+        surface: "#080a0f",
+        line: "rgba(255,255,255,0.08)",
+        accent: "#22c59e",
         amber: "#c47a24",
       },
       boxShadow: {

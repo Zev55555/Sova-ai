@@ -145,16 +145,16 @@ export function ApiSettings() {
   return (
     <div className="flex flex-col items-start gap-2 sm:items-end">
       <span
-        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+        className={`rounded-full border px-3 py-1 text-xs font-medium ${
           isConfigured
             ? "border-accent/25 bg-accent/10 text-accent"
-            : "border-ink/12 bg-white text-ink/56"
+            : "border-white/12 bg-white/5 text-ink/56"
         }`}
       >
         AI：{isConfigured ? "已配置" : "未配置"}
       </span>
       <button
-        className="rounded-lg border border-ink/12 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+        className="min-h-10 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-ink/62 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
         onClick={() => setIsOpen(true)}
         type="button"
       >
@@ -174,13 +174,13 @@ export function ApiSettings() {
               role="dialog"
             >
               <section
-                className="flex max-h-[85vh] w-full max-w-[900px] flex-col overflow-hidden rounded-2xl border border-ink/10 bg-surface shadow-soft"
+                className="api-settings-dialog flex max-h-[85vh] w-full max-w-[900px] flex-col overflow-hidden rounded-lg border border-white/10 bg-surface shadow-sm"
                 onMouseDown={(event) => event.stopPropagation()}
               >
             <div className="shrink-0 border-b border-ink/10 px-5 py-5 sm:px-7 sm:py-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-accent">Sova AI</p>
+                  <p className="text-sm font-semibold text-accent">SOVA AI</p>
                   <h2 className="mt-1 text-2xl font-semibold text-ink">
                     API 设置
                   </h2>
@@ -189,7 +189,7 @@ export function ApiSettings() {
                   </p>
                 </div>
                 <button
-                  className="w-fit rounded-full border border-ink/12 bg-white px-4 py-2 text-sm font-semibold text-ink/62 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+                  className="w-fit rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-ink/62 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
                   onClick={() => setIsOpen(false)}
                   type="button"
                 >
@@ -212,9 +212,9 @@ export function ApiSettings() {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {providerOptions.map((provider) => (
                     <button
-                      className={`flex min-h-32 flex-col justify-between rounded-xl border p-4 text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-accent/18 ${
+                      className={`flex min-h-32 flex-col justify-between rounded-lg border p-4 text-left transition focus:outline-none focus:ring-4 focus:ring-accent/18 ${
                         settings.provider === provider.id
-                          ? "border-accent bg-accent/10 shadow-soft"
+                          ? "border-accent bg-accent/10 shadow-sm"
                           : "border-ink/10 bg-white hover:border-accent/35 hover:bg-surface/70"
                       }`}
                       key={provider.id}
@@ -318,9 +318,9 @@ export function ApiSettings() {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {storageOptions.map((option) => (
                     <button
-                      className={`flex min-h-28 flex-col justify-between rounded-xl border p-4 text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-accent/18 ${
+                      className={`flex min-h-28 flex-col justify-between rounded-lg border p-4 text-left transition focus:outline-none focus:ring-4 focus:ring-accent/18 ${
                         settings.storageMode === option.id
-                          ? "border-accent bg-accent/10 shadow-soft"
+                          ? "border-accent bg-accent/10 shadow-sm"
                           : "border-ink/10 bg-white hover:border-accent/35 hover:bg-surface/70"
                       }`}
                       key={option.id}
@@ -396,14 +396,14 @@ export function ApiSettings() {
                 </button>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <button
-                    className="rounded-lg border border-ink/12 bg-white px-5 py-3 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+                    className="rounded-lg border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
                     onClick={() => setIsOpen(false)}
                     type="button"
                   >
                     取消
                   </button>
                   <button
-                    className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-surface transition hover:bg-accent focus:outline-none focus:ring-4 focus:ring-accent/18"
+                    className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent/85 focus:outline-none focus:ring-4 focus:ring-accent/18"
                     onClick={handleSaveSettings}
                     type="button"
                   >
