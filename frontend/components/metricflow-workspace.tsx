@@ -1,6 +1,13 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   evaluateReadiness,
   evaluateReadinessLocally,
@@ -94,6 +101,21 @@ type WorkflowStep = {
   shortLabel: string;
 };
 
+type AsyncTaskKey =
+  | "clarification"
+  | "analysisPlan"
+  | "metricExecution"
+  | "visualization"
+  | "evidence"
+  | "report";
+
+type AsyncTaskPhase = "running" | "finalizing";
+
+type ActiveAsyncTask = {
+  task: AsyncTaskKey;
+  phase: AsyncTaskPhase;
+} | null;
+
 type StarterExample = {
   title: string;
   problem: string;
@@ -141,6 +163,44 @@ const comparisonOptions: SingleOption[] = [
 ];
 
 const specialChangeFactorIds = ["none", "unknown"];
+const asyncRunningMinimumMs = 850;
+const asyncFinalizingDelayMs = 650;
+
+const asyncProcessConfig: Record<
+  AsyncTaskKey,
+  { title: string; steps: string[]; finalizing: string }
+> = {
+  clarification: {
+    title: "正在理解业务问题",
+    steps: ["识别业务目标", "生成候选指标口径", "整理澄清路径"],
+    finalizing: "业务问题已识别，正在进入指标口径确认…",
+  },
+  analysisPlan: {
+    title: "正在生成分析计划",
+    steps: ["读取业务问题", "匹配字段语义", "生成 Metric Spec", "整理分析步骤"],
+    finalizing: "分析计划已生成，正在整理执行路径…",
+  },
+  metricExecution: {
+    title: "正在执行指标计算",
+    steps: ["读取上传数据", "执行 DuckDB 聚合", "计算本期 vs 上期", "识别 Top movers"],
+    finalizing: "指标计算完成，正在整理结果面板…",
+  },
+  visualization: {
+    title: "正在生成可视化分析",
+    steps: ["读取分析结果", "生成图表数据", "整理维度拆解", "准备可视化面板"],
+    finalizing: "可视化分析已生成，正在整理图表…",
+  },
+  evidence: {
+    title: "正在生成证据链",
+    steps: ["提取核心指标变化", "整理 Top movers", "对照辅助指标", "生成可追踪发现"],
+    finalizing: "证据链已生成，正在整理结果…",
+  },
+  report: {
+    title: "正在生成报告草稿",
+    steps: ["汇总核心结论", "整理分析逻辑", "生成报告段落", "准备报告预览"],
+    finalizing: "报告草稿已生成，正在整理预览…",
+  },
+};
 
 const panelClassName =
   "relative overflow-hidden rounded-[30px] border border-white/10 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.14),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(168,85,247,0.16),transparent_36%),linear-gradient(180deg,rgba(23,26,38,0.98),rgba(9,11,17,0.94))] p-6 shadow-[0_28px_100px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.055)] backdrop-blur-xl transition-colors before:pointer-events-none before:absolute before:inset-x-7 before:top-0 before:h-1 before:rounded-b-full before:bg-[linear-gradient(90deg,rgba(34,211,238,0.12),rgba(34,211,238,0.95),rgba(168,85,247,0.9),rgba(217,70,239,0.72),rgba(251,146,60,0.7),rgba(34,211,238,0.12))] before:shadow-[0_0_18px_rgba(103,232,249,0.18)] before:content-[''] hover:border-cyan-200/18 sm:p-8";
@@ -148,6 +208,26 @@ const primaryButtonClassName =
   "min-h-12 rounded-full bg-[linear-gradient(135deg,rgba(34,211,238,0.95),rgba(124,58,237,0.92))] px-6 py-3 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(34,211,238,0.14)] transition hover:translate-y-[-1px] hover:shadow-[0_18px_42px_rgba(124,58,237,0.18)] focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:bg-none disabled:bg-white/12 disabled:text-white/40 disabled:shadow-none";
 const secondaryButtonClassName =
   "min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-ink/68 transition hover:border-accent/40 hover:text-accent focus:outline-none focus:ring-4 focus:ring-accent/18 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/4 disabled:text-ink/34";
+
+function waitForAsyncFinalizing() {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, asyncFinalizingDelayMs);
+  });
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function ensureMinimumDuration(startTime: number, minimumMs: number) {
+  const remaining = minimumMs - (Date.now() - startTime);
+
+  if (remaining > 0) {
+    await wait(remaining);
+  }
+}
 
 const starterExamples: StarterExample[] = [
   {
@@ -228,9 +308,14 @@ export function MetricFlowWorkspace() {
   const [activeStepId, setActiveStepId] =
     useState<WorkflowStepId>("business_problem");
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [activeAsyncTask, setActiveAsyncTask] =
+    useState<ActiveAsyncTask>(null);
   const [taskFeedback, setTaskFeedback] =
     useState<AsyncTaskFeedback | null>(null);
   const [taskFeedbackNow, setTaskFeedbackNow] = useState(() => Date.now());
+  const analysisPlanResultRef = useRef<HTMLDivElement | null>(null);
+  const metricResultRef = useRef<HTMLDivElement | null>(null);
+  const evidenceResultRef = useRef<HTMLDivElement | null>(null);
 
   const localBusinessClarificationResult = useMemo(
     () => generateLocalBusinessClarification(clarificationState.businessProblem),
@@ -349,6 +434,31 @@ export function MetricFlowWorkspace() {
     setTaskFeedbackNow(now);
   }
 
+  function beginAsyncProcess(task: AsyncTaskKey) {
+    setActiveAsyncTask({ task, phase: "running" });
+    return Date.now();
+  }
+
+  async function finalizeAsyncProcess(task: AsyncTaskKey) {
+    setActiveAsyncTask({ task, phase: "finalizing" });
+    await waitForAsyncFinalizing();
+  }
+
+  function clearAsyncProcess() {
+    setActiveAsyncTask(null);
+  }
+
+  function scrollToResult(ref: RefObject<HTMLElement | null>) {
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        ref.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    }, 50);
+  }
+
   function getVisibleTaskFeedback(taskId: AsyncTaskId) {
     return taskFeedback?.taskId === taskId ? taskFeedback : null;
   }
@@ -404,6 +514,7 @@ export function MetricFlowWorkspace() {
     };
     setHasStarted(true);
     setIsEvaluating(true);
+    beginAsyncProcess("clarification");
     setReadiness(evaluateReadinessLocally(nextState));
 
     if (isLlmConfigured(llmSettings)) {
@@ -440,8 +551,10 @@ export function MetricFlowWorkspace() {
     const nextReadiness = await evaluateReadiness(nextState);
     setClarificationState(nextState);
     setReadiness(nextReadiness);
+    await finalizeAsyncProcess("clarification");
     setIsEvaluating(false);
     setActiveStepId("metric_definition");
+    clearAsyncProcess();
   }
 
   async function handleSelectMetric(option: MetricDefinitionCard) {
@@ -611,6 +724,7 @@ export function MetricFlowWorkspace() {
     setReportNotice("");
     setIsGeneratingReport(false);
     setTaskFeedback(null);
+    clearAsyncProcess();
   }
 
   async function handleUploadFiles(files: File[]) {
@@ -704,6 +818,7 @@ export function MetricFlowWorkspace() {
     const llmSettings = getInitialLlmSettings();
 
     beginTaskFeedback("analysis_plan");
+    const processStartedAt = beginAsyncProcess("analysisPlan");
     setIsGeneratingAnalysisPlan(true);
     setAnalysisPlanError("");
     setAnalysisPlanNotice("");
@@ -729,7 +844,10 @@ export function MetricFlowWorkspace() {
           await handleBuildMetricSpec(llmAnalysisPlan);
           clearGeneratedOutputsAfterNewPlan();
           completeTaskFeedback("analysis_plan");
-          setActiveStepId("metric_calculation");
+          await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+          await finalizeAsyncProcess("analysisPlan");
+          setActiveStepId("analysis_plan");
+          scrollToResult(analysisPlanResultRef);
           setAnalysisPlanNotice(
             llmAnalysisPlan.source === "llm"
               ? "AI 已根据业务问题和数据字段生成分析计划。"
@@ -744,7 +862,10 @@ export function MetricFlowWorkspace() {
           await handleBuildMetricSpec(localPlan);
           clearGeneratedOutputsAfterNewPlan();
           completeTaskFeedback("analysis_plan");
-          setActiveStepId("metric_calculation");
+          await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+          await finalizeAsyncProcess("analysisPlan");
+          setActiveStepId("analysis_plan");
+          scrollToResult(analysisPlanResultRef);
           setAnalysisPlanNotice(
             `AI 分析计划生成失败：${reason}。已使用本地规则继续生成分析计划。`,
           );
@@ -757,7 +878,10 @@ export function MetricFlowWorkspace() {
       await handleBuildMetricSpec(nextAnalysisPlan);
       clearGeneratedOutputsAfterNewPlan();
       completeTaskFeedback("analysis_plan");
-      setActiveStepId("metric_calculation");
+      await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+      await finalizeAsyncProcess("analysisPlan");
+      setActiveStepId("analysis_plan");
+      scrollToResult(analysisPlanResultRef);
       setAnalysisPlanNotice(
         "当前使用本地规则生成分析计划。你也可以在 API 设置中配置模型，获得更智能的分析计划。",
       );
@@ -767,6 +891,7 @@ export function MetricFlowWorkspace() {
       failTaskFeedback("analysis_plan", message);
     } finally {
       setIsGeneratingAnalysisPlan(false);
+      clearAsyncProcess();
     }
   }
 
@@ -826,6 +951,7 @@ export function MetricFlowWorkspace() {
     }
 
     beginTaskFeedback("metric_calculation");
+    const processStartedAt = beginAsyncProcess("metricExecution");
     setIsExecutingMetricSpec(true);
     setMetricSpecExecutionError("");
 
@@ -838,7 +964,10 @@ export function MetricFlowWorkspace() {
       setEvidenceResult(null);
       setReportDraft(null);
       completeTaskFeedback("metric_calculation");
+      await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+      await finalizeAsyncProcess("metricExecution");
       setActiveStepId("metric_calculation");
+      scrollToResult(metricResultRef);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "指标计算执行失败，请稍后重试。";
@@ -846,6 +975,7 @@ export function MetricFlowWorkspace() {
       failTaskFeedback("metric_calculation", message);
     } finally {
       setIsExecutingMetricSpec(false);
+      clearAsyncProcess();
     }
   }
 
@@ -855,6 +985,7 @@ export function MetricFlowWorkspace() {
       return;
     }
 
+    beginAsyncProcess("visualization");
     setIsExecutingAnalysis(true);
     setAnalysisExecutionError("");
     setAnalysisExecutionResult(null);
@@ -876,6 +1007,7 @@ export function MetricFlowWorkspace() {
         changeFactors: clarificationState.changeFactors,
       });
       setAnalysisExecutionResult(nextExecutionResult);
+      await finalizeAsyncProcess("visualization");
       setActiveStepId("metric_calculation");
     } catch (error) {
       setAnalysisExecutionError(
@@ -885,6 +1017,7 @@ export function MetricFlowWorkspace() {
       );
     } finally {
       setIsExecutingAnalysis(false);
+      clearAsyncProcess();
     }
   }
 
@@ -923,6 +1056,7 @@ export function MetricFlowWorkspace() {
     const llmSettings = getInitialLlmSettings();
 
     beginTaskFeedback("evidence_chain");
+    const processStartedAt = beginAsyncProcess("evidence");
     setIsGeneratingEvidence(true);
     setEvidenceError("");
     setEvidenceNotice("");
@@ -942,7 +1076,10 @@ export function MetricFlowWorkspace() {
           setEvidenceResult(llmEvidenceResult);
           setReportDraft(null);
           completeTaskFeedback("evidence_chain");
+          await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+          await finalizeAsyncProcess("evidence");
           setActiveStepId("evidence_chain");
+          scrollToResult(evidenceResultRef);
           setEvidenceNotice(
             llmEvidenceResult.source === "llm"
               ? metricSpecExecutionResult
@@ -958,7 +1095,10 @@ export function MetricFlowWorkspace() {
           setEvidenceResult(localEvidenceResult);
           setReportDraft(null);
           completeTaskFeedback("evidence_chain");
+          await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+          await finalizeAsyncProcess("evidence");
           setActiveStepId("evidence_chain");
+          scrollToResult(evidenceResultRef);
           setEvidenceNotice(
             `AI 证据链生成失败：${reason}。已使用本地规则继续生成证据链。`,
           );
@@ -970,7 +1110,10 @@ export function MetricFlowWorkspace() {
       setEvidenceResult(nextEvidenceResult);
       setReportDraft(null);
       completeTaskFeedback("evidence_chain");
+      await ensureMinimumDuration(processStartedAt, asyncRunningMinimumMs);
+      await finalizeAsyncProcess("evidence");
       setActiveStepId("evidence_chain");
+      scrollToResult(evidenceResultRef);
       setEvidenceNotice(
         metricSpecExecutionResult
           ? "已使用指标计算结果生成证据链。"
@@ -985,6 +1128,7 @@ export function MetricFlowWorkspace() {
       failTaskFeedback("evidence_chain", message);
     } finally {
       setIsGeneratingEvidence(false);
+      clearAsyncProcess();
     }
   }
 
@@ -1015,6 +1159,7 @@ export function MetricFlowWorkspace() {
     const llmSettings = getInitialLlmSettings();
 
     beginTaskFeedback("report_draft");
+    beginAsyncProcess("report");
     setIsGeneratingReport(true);
     setReportError("");
     setReportNotice("");
@@ -1028,6 +1173,7 @@ export function MetricFlowWorkspace() {
           );
           setReportDraft(llmReportDraft);
           completeTaskFeedback("report_draft");
+          await finalizeAsyncProcess("report");
           setActiveStepId("report_draft");
           setReportNotice(
             llmReportDraft.source === "llm"
@@ -1043,6 +1189,7 @@ export function MetricFlowWorkspace() {
             error instanceof Error ? error.message : "LLM 接口调用失败";
           setReportDraft(localReportDraft);
           completeTaskFeedback("report_draft");
+          await finalizeAsyncProcess("report");
           setActiveStepId("report_draft");
           setReportNotice(
             `AI 报告生成失败：${reason}。已使用本地规则继续生成报告草稿。`,
@@ -1054,6 +1201,7 @@ export function MetricFlowWorkspace() {
       const nextReportDraft = await generateReportDraft(reportInput);
       setReportDraft(nextReportDraft);
       completeTaskFeedback("report_draft");
+      await finalizeAsyncProcess("report");
       setActiveStepId("report_draft");
       setReportNotice(
         metricSpecExecutionResult
@@ -1069,6 +1217,7 @@ export function MetricFlowWorkspace() {
       failTaskFeedback("report_draft", message);
     } finally {
       setIsGeneratingReport(false);
+      clearAsyncProcess();
     }
   }
 
@@ -1130,6 +1279,10 @@ export function MetricFlowWorkspace() {
                 {isGeneratingMetricDefinitions ? "正在澄清…" : "开始澄清"}
               </button>
             </div>
+
+            {activeAsyncTask?.task === "clarification" ? (
+              <AsyncProcessCard activeTask={activeAsyncTask} />
+            ) : null}
 
           </section>
         );
@@ -1340,22 +1493,23 @@ export function MetricFlowWorkspace() {
                 isGeneratingAnalysisPlan={isGeneratingAnalysisPlan}
                 onGeneratePlan={handleGenerateAnalysisPlan}
               />
-              <TaskProgressCard
-                feedback={getVisibleTaskFeedback("analysis_plan")}
-                stepIndex={taskStepIndex}
-              />
+              {activeAsyncTask?.task === "analysisPlan" ? (
+                <AsyncProcessCard activeTask={activeAsyncTask} />
+              ) : null}
               {analysisPlan ? (
-                <AnalysisPlanSection
-                  analysisPlan={analysisPlan}
-                  isExecutingMetricSpec={isExecutingMetricSpec}
-                  metricSpec={metricSpec}
-                  metricSpecError={metricSpecError}
-                  metricSpecExecutionError={metricSpecExecutionError}
-                  metricSpecExecutionResult={metricSpecExecutionResult}
-                  onExecuteMetricSpec={handleExecuteMetricSpec}
-                  showMetricSpec={false}
-                  uploadResult={uploadResult}
-                />
+                <div className="sova-reveal scroll-mt-6" ref={analysisPlanResultRef}>
+                  <AnalysisPlanSection
+                    analysisPlan={analysisPlan}
+                    isExecutingMetricSpec={isExecutingMetricSpec}
+                    metricSpec={metricSpec}
+                    metricSpecError={metricSpecError}
+                    metricSpecExecutionError={metricSpecExecutionError}
+                    metricSpecExecutionResult={metricSpecExecutionResult}
+                    onExecuteMetricSpec={handleExecuteMetricSpec}
+                    showMetricSpec
+                    uploadResult={uploadResult}
+                  />
+                </div>
               ) : (
                 <PanelPlaceholder text="生成分析计划后，将展示可执行的分析步骤。" />
               )}
@@ -1382,12 +1536,17 @@ export function MetricFlowWorkspace() {
                 metricSpecError={metricSpecError}
                 metricSpecExecutionError={metricSpecExecutionError}
                 metricSpecExecutionResult={metricSpecExecutionResult}
+                metricResultRef={metricResultRef}
                 onExecuteMetricSpec={handleExecuteMetricSpec}
                 taskFeedback={getVisibleTaskFeedback("metric_calculation")}
                 taskStepIndex={taskStepIndex}
               />
+              {activeAsyncTask?.task === "metricExecution" ? (
+                <AsyncProcessCard activeTask={activeAsyncTask} />
+              ) : null}
             </section>
             <BasicAnalysisDisclosure
+              activeAsyncTask={activeAsyncTask?.task === "visualization" ? activeAsyncTask : null}
               analysisExecutionError={analysisExecutionError}
               analysisExecutionResult={analysisExecutionResult}
               evidenceError={evidenceError}
@@ -1420,29 +1579,37 @@ export function MetricFlowWorkspace() {
               </p>
             </div>
             {metricSpecExecutionResult ? (
-              <MetricResultSummary result={metricSpecExecutionResult} />
+              <div className="sova-reveal">
+                <MetricResultSummary result={metricSpecExecutionResult} />
+              </div>
             ) : null}
-            <EvidenceChainSection
-              evidenceError={evidenceError}
-              evidenceNotice={evidenceNotice}
-              evidenceResult={evidenceResult}
-              isGeneratingEvidence={isGeneratingEvidence}
-              usesMetricExecutionResult={Boolean(metricSpecExecutionResult)}
-              onGenerateEvidence={handleGenerateEvidenceChain}
-            />
-            {evidenceResult ? (
-              <ReportDraftSection
-                isGeneratingReport={isGeneratingReport}
-                onGenerateReport={handleGenerateReportDraft}
-                reportDraft={reportDraft}
-                reportError={reportError}
-                reportNotice={reportNotice}
+            {activeAsyncTask?.task === "evidence" ? (
+              <AsyncProcessCard activeTask={activeAsyncTask} />
+            ) : null}
+            <div className="scroll-mt-6" ref={evidenceResultRef}>
+              <EvidenceChainSection
+                evidenceError={evidenceError}
+                evidenceNotice={evidenceNotice}
+                evidenceResult={evidenceResult}
+                isGeneratingEvidence={isGeneratingEvidence}
+                usesMetricExecutionResult={Boolean(metricSpecExecutionResult)}
+                onGenerateEvidence={handleGenerateEvidenceChain}
               />
+            </div>
+            {evidenceResult ? (
+              <div className="sova-reveal">
+                {activeAsyncTask?.task === "report" ? (
+                  <AsyncProcessCard activeTask={activeAsyncTask} />
+                ) : null}
+                <ReportDraftSection
+                  isGeneratingReport={isGeneratingReport}
+                  onGenerateReport={handleGenerateReportDraft}
+                  reportDraft={reportDraft}
+                  reportError={reportError}
+                  reportNotice={reportNotice}
+                />
+              </div>
             ) : null}
-            <TaskProgressCard
-              feedback={getVisibleTaskFeedback("evidence_chain")}
-              stepIndex={taskStepIndex}
-            />
           </section>
         );
 
@@ -1458,17 +1625,18 @@ export function MetricFlowWorkspace() {
                 将业务问题、指标计算结果、证据链和限制说明整理成可编辑报告。
               </p>
             </div>
-            <ReportDraftSection
-              isGeneratingReport={isGeneratingReport}
-              onGenerateReport={handleGenerateReportDraft}
-              reportDraft={reportDraft}
-              reportError={reportError}
-              reportNotice={reportNotice}
-            />
-            <TaskProgressCard
-              feedback={getVisibleTaskFeedback("report_draft")}
-              stepIndex={taskStepIndex}
-            />
+            {activeAsyncTask?.task === "report" ? (
+              <AsyncProcessCard activeTask={activeAsyncTask} />
+            ) : null}
+            <div className="sova-reveal">
+              <ReportDraftSection
+                isGeneratingReport={isGeneratingReport}
+                onGenerateReport={handleGenerateReportDraft}
+                reportDraft={reportDraft}
+                reportError={reportError}
+                reportNotice={reportNotice}
+              />
+            </div>
           </section>
         );
 
@@ -1881,6 +2049,58 @@ function WorkflowProgressModule({
   );
 }
 
+function AsyncProcessCard({ activeTask }: { activeTask: Exclude<ActiveAsyncTask, null> }) {
+  const config = asyncProcessConfig[activeTask.task];
+  const isFinalizing = activeTask.phase === "finalizing";
+
+  return (
+    <section className="mt-5 rounded-[24px] border border-cyan-200/12 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.12),transparent_38%),radial-gradient(circle_at_82%_12%,rgba(124,58,237,0.12),transparent_42%),linear-gradient(180deg,rgba(15,20,31,0.88),rgba(8,10,17,0.9))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent/78">
+            AI Process
+          </p>
+          <h3 className="mt-1 text-base font-semibold text-ink">
+            {isFinalizing ? config.finalizing : config.title}
+          </h3>
+        </div>
+        <span className="mt-1 flex h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.28)]" />
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {config.steps.map((step, index) => {
+          const isDone = isFinalizing || index < 2;
+          const isRunning = !isFinalizing && index === 2;
+
+          return (
+            <div
+              className="flex items-center gap-2 text-sm text-ink/62"
+              key={step}
+            >
+              <span
+                className={
+                  isDone
+                    ? "flex h-5 w-5 items-center justify-center rounded-full border border-cyan-300/22 bg-cyan-300/12 text-[11px] font-semibold text-cyan-100"
+                    : isRunning
+                      ? "h-2.5 w-2.5 rounded-full bg-cyan-300/80 shadow-[0_0_12px_rgba(34,211,238,0.2)]"
+                      : "h-2.5 w-2.5 rounded-full border border-white/14 bg-white/[0.04]"
+                }
+              >
+                {isDone ? "✓" : null}
+              </span>
+              <span className={isRunning ? "text-ink/78" : ""}>{step}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/[0.055]">
+        <div className="h-full w-1/2 rounded-full bg-[linear-gradient(90deg,rgba(34,211,238,0.08),rgba(34,211,238,0.82),rgba(124,58,237,0.72),rgba(34,211,238,0.08))] sova-async-bar" />
+      </div>
+    </section>
+  );
+}
+
 function UsageGuideDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
@@ -2066,6 +2286,7 @@ function UploadOnlySection({
 }
 
 function BasicAnalysisDisclosure({
+  activeAsyncTask,
   analysisExecutionError,
   analysisExecutionResult,
   evidenceError,
@@ -2082,6 +2303,7 @@ function BasicAnalysisDisclosure({
   reportNotice,
   uploadResult,
 }: {
+  activeAsyncTask: ActiveAsyncTask;
   analysisExecutionError: string;
   analysisExecutionResult: AnalysisExecutionResult | null;
   evidenceError: string;
@@ -2099,12 +2321,21 @@ function BasicAnalysisDisclosure({
   uploadResult: UploadResponse | null;
 }) {
   return (
-    <details className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5 shadow-sm backdrop-blur">
-      <summary className="cursor-pointer text-base font-semibold text-transparent">
+    <section className="rounded-[26px] border border-cyan-200/12 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.1),transparent_38%),linear-gradient(180deg,rgba(14,18,29,0.86),rgba(8,10,16,0.9))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.045)] backdrop-blur-xl">
+      <div className="text-base font-semibold text-transparent">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent/78">
+          Visualization
+        </p>
+        <h3 className="mt-1 text-lg font-semibold text-ink">可视化分析</h3>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/62">
+          生成图表和维度拆解后，再基于指标计算结果、Top movers 和辅助指标生成证据链。
+        </p>
+        <span className="hidden">
         <span className="text-ink">可视化分析</span>
         辅助探索区：基础分析
-      </summary>
-      <p className="mt-3 rounded-[18px] border border-white/8 bg-white/[0.035] px-3 py-2 text-sm leading-6 text-transparent">
+        </span>
+      </div>
+      <p className="hidden">
         <span className="text-ink/62">
           生成可视化分析后，再基于指标计算结果、Top movers 和辅助指标生成证据链。
         </span>
@@ -2115,23 +2346,28 @@ function BasicAnalysisDisclosure({
         isExecutingAnalysis={isExecutingAnalysis}
         onExecuteAnalysis={onExecuteAnalysis}
       />
-      {analysisExecutionResult ? (
-        <AnalysisExecutionResultSection
-          evidenceError={evidenceError}
-          evidenceNotice={evidenceNotice}
-          evidenceResult={evidenceResult}
-          executionResult={analysisExecutionResult}
-          isGeneratingEvidence={isGeneratingEvidence}
-          isGeneratingReport={isGeneratingReport}
-          onGenerateEvidence={onGenerateEvidence}
-          onGenerateReport={onGenerateReport}
-          reportDraft={reportDraft}
-          reportError={reportError}
-          reportNotice={reportNotice}
-          uploadResult={uploadResult}
-        />
+      {activeAsyncTask ? (
+        <AsyncProcessCard activeTask={activeAsyncTask} />
       ) : null}
-    </details>
+      {analysisExecutionResult ? (
+        <div className="sova-reveal">
+          <AnalysisExecutionResultSection
+            evidenceError={evidenceError}
+            evidenceNotice={evidenceNotice}
+            evidenceResult={evidenceResult}
+            executionResult={analysisExecutionResult}
+            isGeneratingEvidence={isGeneratingEvidence}
+            isGeneratingReport={isGeneratingReport}
+            onGenerateEvidence={onGenerateEvidence}
+            onGenerateReport={onGenerateReport}
+            reportDraft={reportDraft}
+            reportError={reportError}
+            reportNotice={reportNotice}
+            uploadResult={uploadResult}
+          />
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -3351,13 +3587,15 @@ function AnalysisExecutionResultSection({
         usesMetricExecutionResult={false}
         onGenerateEvidence={onGenerateEvidence}
       />
-      <ReportDraftSection
-        isGeneratingReport={isGeneratingReport}
-        onGenerateReport={onGenerateReport}
-        reportDraft={reportDraft}
-        reportError={reportError}
-        reportNotice={reportNotice}
-      />
+      {evidenceResult ? (
+        <ReportDraftSection
+          isGeneratingReport={isGeneratingReport}
+          onGenerateReport={onGenerateReport}
+          reportDraft={reportDraft}
+          reportError={reportError}
+          reportNotice={reportNotice}
+        />
+      ) : null}
 
       <div className="mt-5 space-y-4">
         {executionResult.tables.map((table) => (
@@ -3468,6 +3706,7 @@ function MetricSpecCard({
   metricSpecError,
   metricSpecExecutionError,
   metricSpecExecutionResult,
+  metricResultRef,
   onExecuteMetricSpec,
   taskFeedback,
   taskStepIndex,
@@ -3477,6 +3716,7 @@ function MetricSpecCard({
   metricSpecError: string;
   metricSpecExecutionError: string;
   metricSpecExecutionResult: MetricSpecExecutionResult | null;
+  metricResultRef?: RefObject<HTMLDivElement | null>;
   onExecuteMetricSpec: () => void;
   taskFeedback: AsyncTaskFeedback | null;
   taskStepIndex: number;
@@ -3583,10 +3823,10 @@ function MetricSpecCard({
         ) : null}
       </div>
 
-      <TaskProgressCard feedback={taskFeedback} stepIndex={taskStepIndex} />
-
       {metricSpecExecutionResult ? (
-        <MetricSpecExecutionSection result={metricSpecExecutionResult} />
+        <div className="sova-reveal scroll-mt-6" ref={metricResultRef}>
+          <MetricSpecExecutionSection result={metricSpecExecutionResult} />
+        </div>
       ) : (
         <PanelPlaceholder text="执行指标计算后，将展示核心指标变化、Top movers 和辅助指标对比。" />
       )}

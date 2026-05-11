@@ -218,3 +218,38 @@ button {
 .api-settings-dialog [class~="shadow-soft"] {
   box-shadow: none;
 }
+
+@keyframes sovaFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sovaAsyncBar {
+  from {
+    transform: translateX(-70%);
+  }
+  to {
+    transform: translateX(210%);
+  }
+}
+
+.sova-reveal {
+  animation: sovaFadeUp 320ms ease-out both;
+}
+
+.sova-async-bar {
+  animation: sovaAsyncBar 1.35s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sova-reveal,
+  .sova-async-bar {
+    animation: none;
+  }
+}
