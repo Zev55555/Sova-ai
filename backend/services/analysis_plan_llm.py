@@ -15,7 +15,12 @@ from services.analysis_planner import (
     FieldMapping,
     generate_analysis_plan,
 )
-from services.llm_client import Provider, call_chat_completion, describe_http_error
+from services.llm_client import (
+    Provider,
+    call_chat_completion,
+    describe_http_error,
+    has_hosted_llm_default,
+)
 
 
 class LlmAnalysisPlanRequest(AnalysisPlanRequest):
@@ -97,6 +102,8 @@ def _fallback_response(
 
 def _get_missing_config_reason(request: LlmAnalysisPlanRequest) -> str | None:
     if not request.api_key.strip():
+        if has_hosted_llm_default():
+            return None
         return "API Key 缺失"
 
     if not request.base_url.strip():

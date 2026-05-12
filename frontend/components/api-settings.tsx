@@ -58,6 +58,19 @@ const storageOptions: Array<{
   },
 ];
 
+const deepSeekModelOptions = [
+  {
+    id: "deepseek-v4-pro",
+    title: "DeepSeek V4 Pro",
+    description: "默认质量优先，适合业务澄清、证据链和报告表达。",
+  },
+  {
+    id: "deepseek-v4-flash",
+    title: "DeepSeek V4 Flash",
+    description: "速度优先，适合更快完成澄清和草稿生成。",
+  },
+];
+
 type ApiSettingsProps = {
   variant?: "header" | "sidebar";
 };
@@ -106,6 +119,7 @@ export function ApiSettings({ variant = "header" }: ApiSettingsProps) {
       ...current,
       provider,
       baseUrl: providerDefaults[provider].baseUrl,
+      model: providerDefaults[provider].model,
     }));
     clearTransientMessages();
   }
@@ -266,56 +280,101 @@ export function ApiSettings({ variant = "header" }: ApiSettingsProps) {
                     </p>
                   </div>
                   <div className="mt-5 grid gap-4">
-                    <FormField label="API Key">
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <input
-                          className="min-w-0 flex-1 rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/12"
-                          onChange={(event) => {
-                            setSettings((current) => ({
-                              ...current,
-                              apiKey: event.target.value,
-                            }));
-                            clearTransientMessages();
-                          }}
-                          placeholder="请输入你的 API Key"
-                          type="password"
-                          value={settings.apiKey}
-                        />
-                        <span className="rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm font-semibold text-ink/48 sm:shrink-0">
-                          已隐藏
-                        </span>
-                      </div>
-                    </FormField>
+                    {settings.provider === "deepseek" ? (
+                      <>
+                        <div className="rounded-xl border border-accent/20 bg-accent/10 px-4 py-3 text-sm leading-6 text-ink/72">
+                          {"\u9ed8\u8ba4\u63a5\u5165 DeepSeek\u3002\u4f60\u4e0d\u9700\u8981\u586b\u5199 API Key\uff0cSOVA AI \u4f1a\u4f7f\u7528\u670d\u52a1\u7aef\u6258\u7ba1\u7684 DeepSeek \u914d\u7f6e\uff1b\u8fd9\u91cc\u4ec5\u9009\u62e9\u9ed8\u8ba4\u6a21\u578b\u3002"}
+                        </div>
+                        <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100/88">
+                          DeepSeek 在长文本和结构化 JSON 分析任务中响应较慢，尤其是上传数据后的字段语义识别。如果你更看重速度和稳定性，建议在这里选择 OpenAI 并使用自己的 OpenAI API。
+                        </div>
+                        <FormField label="DeepSeek model">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {deepSeekModelOptions.map((option) => (
+                              <button
+                                className={`rounded-xl border p-4 text-left transition focus:outline-none focus:ring-4 focus:ring-accent/18 ${
+                                  settings.model === option.id
+                                    ? "border-accent bg-accent/10 text-ink"
+                                    : "border-ink/10 bg-white text-ink/72 hover:border-accent/35 hover:bg-surface/70"
+                                }`}
+                                key={option.id}
+                                onClick={() => {
+                                  setSettings((current) => ({
+                                    ...current,
+                                    provider: "deepseek",
+                                    apiKey: "",
+                                    baseUrl: providerDefaults.deepseek.baseUrl,
+                                    model: option.id,
+                                  }));
+                                  clearTransientMessages();
+                                }}
+                                type="button"
+                              >
+                                <span className="block text-sm font-semibold">
+                                  {option.title}
+                                </span>
+                                <span className="mt-2 block text-sm leading-6 text-ink/58">
+                                  {option.description}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </FormField>
+                      </>
+                    ) : (
+                      <>
+                        <FormField label="API Key">
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <input
+                              className="min-w-0 flex-1 rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/12"
+                              onChange={(event) => {
+                                setSettings((current) => ({
+                                  ...current,
+                                  apiKey: event.target.value,
+                                }));
+                                clearTransientMessages();
+                              }}
+                              placeholder="API Key"
+                              type="password"
+                              value={settings.apiKey}
+                            />
+                            <span className="rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm font-semibold text-ink/48 sm:shrink-0">
+                              Hidden
+                            </span>
+                          </div>
+                        </FormField>
 
-                    <FormField label="API Base URL">
-                      <input
-                        className="w-full rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/12"
-                        onChange={(event) => {
-                          setSettings((current) => ({
-                            ...current,
-                            baseUrl: event.target.value,
-                          }));
-                          clearTransientMessages();
-                        }}
-                        placeholder="请输入 API Base URL"
-                        value={settings.baseUrl}
-                      />
-                    </FormField>
+                        <FormField label="API Base URL">
+                          <input
+                            className="w-full rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/12"
+                            onChange={(event) => {
+                              setSettings((current) => ({
+                                ...current,
+                                baseUrl: event.target.value,
+                              }));
+                              clearTransientMessages();
+                            }}
+                            placeholder="API Base URL"
+                            value={settings.baseUrl}
+                          />
+                        </FormField>
 
-                    <FormField label="模型名称">
-                      <input
-                        className="w-full rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/12"
-                        onChange={(event) => {
-                          setSettings((current) => ({
-                            ...current,
-                            model: event.target.value,
-                          }));
-                          clearTransientMessages();
-                        }}
-                        placeholder="例如：gpt-5-mini、deepseek-chat，或你的服务商支持的模型名称"
-                        value={settings.model}
-                      />
-                    </FormField>
+                        <FormField label="Model">
+                          <input
+                            className="w-full rounded-lg border border-ink/12 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/12"
+                            onChange={(event) => {
+                              setSettings((current) => ({
+                                ...current,
+                                model: event.target.value,
+                              }));
+                              clearTransientMessages();
+                            }}
+                            placeholder="gpt-5-mini, deepseek-v4-flash, or another supported model"
+                            value={settings.model}
+                          />
+                        </FormField>
+                      </>
+                    )}
                   </div>
                 </section>
 

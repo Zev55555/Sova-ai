@@ -19,25 +19,32 @@ export const sessionSettingsKey = "sova-ai-llm-settings-session";
 export const localSettingsKey = "sova-ai-llm-settings-local";
 
 export const defaultLlmSettings: LlmSettings = {
-  provider: "openai",
+  provider: "deepseek",
   apiKey: "",
-  baseUrl: "https://api.openai.com/v1",
-  model: "",
+  baseUrl: "https://api.deepseek.com",
+  model: "deepseek-v4-flash",
   storageMode: "session",
 };
 
-export const providerDefaults: Record<LlmProvider, { baseUrl: string }> = {
+export const providerDefaults: Record<
+  LlmProvider,
+  { baseUrl: string; model: string }
+> = {
   openai: {
     baseUrl: "https://api.openai.com/v1",
+    model: "",
   },
   deepseek: {
     baseUrl: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
   },
   "openai-compatible": {
     baseUrl: "",
+    model: "",
   },
   custom: {
     baseUrl: "",
+    model: "",
   },
 };
 
@@ -76,6 +83,10 @@ export function saveLlmSettings(settings: LlmSettings) {
 }
 
 export function isLlmConfigured(settings: LlmSettings) {
+  if (settings.provider === "deepseek") {
+    return Boolean(settings.baseUrl.trim() && settings.model.trim());
+  }
+
   return Boolean(
     settings.apiKey.trim() && settings.baseUrl.trim() && settings.model.trim(),
   );

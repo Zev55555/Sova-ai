@@ -12,7 +12,12 @@ from services.evidence_generator import (
     EvidenceResponse,
     generate_evidence,
 )
-from services.llm_client import Provider, call_chat_completion, describe_http_error
+from services.llm_client import (
+    Provider,
+    call_chat_completion,
+    describe_http_error,
+    has_hosted_llm_default,
+)
 
 
 class LlmEvidenceRequest(EvidenceRequest):
@@ -93,6 +98,8 @@ def _fallback_response(
 
 def _get_missing_config_reason(request: LlmEvidenceRequest) -> str | None:
     if not request.api_key.strip():
+        if has_hosted_llm_default():
+            return None
         return "API Key 缺失"
 
     if not request.base_url.strip():

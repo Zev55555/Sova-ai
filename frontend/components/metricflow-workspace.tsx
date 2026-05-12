@@ -29,6 +29,8 @@ import {
 import { getInitialLlmSettings, isLlmConfigured } from "@/lib/llm-settings";
 import {
   uploadDataFiles,
+  type SemanticAnalysisItem,
+  type SemanticFieldRole,
   type UploadFileSchema,
   type UploadResponse,
 } from "@/lib/data-upload";
@@ -2977,9 +2979,12 @@ function UnderstandingCard({
 function DataFieldUnderstandingCard({ uploadResult }: { uploadResult: UploadResponse }) {
   const semanticContext = uploadResult.semantic_context;
   const primaryMetric = semanticContext?.primary_metric;
+  const fieldRoles = getSemanticArray<SemanticFieldRole>(
+    semanticContext?.field_roles,
+  );
   const keyFieldRoles =
-    semanticContext?.field_roles
-      ?.filter((role) => role.role !== "unknown")
+    fieldRoles
+      .filter((role) => role.role !== "unknown")
       .slice(0, 12) ?? [];
 
   return (
@@ -3081,6 +3086,10 @@ function DataFieldUnderstandingCard({ uploadResult }: { uploadResult: UploadResp
       ) : null}
     </section>
   );
+}
+
+function getSemanticArray<T>(value: T[] | unknown): T[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function DataNeedsSection({
@@ -4415,17 +4424,23 @@ function DataUploadSummary({ uploadResult }: { uploadResult: UploadResponse }) {
 }
 
 function DataSchemaResults({ uploadResult }: { uploadResult: UploadResponse }) {
+  const semanticSupportedAnalysis = getSemanticArray<SemanticAnalysisItem>(
+    uploadResult.semantic_context?.supported_analysis,
+  );
+  const semanticUnsupportedAnalysis = getSemanticArray<SemanticAnalysisItem>(
+    uploadResult.semantic_context?.unsupported_analysis,
+  );
   const supportedItems =
-    uploadResult.semantic_context?.supported_analysis?.length
-      ? uploadResult.semantic_context.supported_analysis
+    semanticSupportedAnalysis.length
+      ? semanticSupportedAnalysis
       : uploadResult.supported_analysis.map((title) => ({
           title,
           reason: "当前字段结构支持该分析方向。",
           related_fields: [],
         }));
   const unsupportedItems =
-    uploadResult.semantic_context?.unsupported_analysis?.length
-      ? uploadResult.semantic_context.unsupported_analysis
+    semanticUnsupportedAnalysis.length
+      ? semanticUnsupportedAnalysis
       : uploadResult.missing_requirements.map((reason) => ({
           title: "暂不支持的分析方向",
           reason,
@@ -4681,9 +4696,11 @@ function getReadinessWithUploadState(
       !isLegacyGenericDataLimitation(item, uploadResult),
   );
   const semanticUnsupported =
-    uploadResult.semantic_context?.unsupported_analysis?.map(
+    getSemanticArray<SemanticAnalysisItem>(
+      uploadResult.semantic_context?.unsupported_analysis,
+    ).map(
       (item) => item.reason,
-    ) ?? [];
+    );
   const readinessLimitations = uploadResult.semantic_context
     ? semanticUnsupported
     : getRelevantLimitations(missingInfo, uploadResult);
@@ -4782,9 +4799,15 @@ function isRelevantLimitation(
 
 function buildSemanticContextText(uploadResult: UploadResponse) {
   const semanticContext = uploadResult.semantic_context;
-  const fieldRoles = semanticContext?.field_roles ?? [];
-  const supportedAnalysis = semanticContext?.supported_analysis ?? [];
-  const unsupportedAnalysis = semanticContext?.unsupported_analysis ?? [];
+  const fieldRoles = getSemanticArray<SemanticFieldRole>(
+    semanticContext?.field_roles,
+  );
+  const supportedAnalysis = getSemanticArray<SemanticAnalysisItem>(
+    semanticContext?.supported_analysis,
+  );
+  const unsupportedAnalysis = getSemanticArray<SemanticAnalysisItem>(
+    semanticContext?.unsupported_analysis,
+  );
 
   return [
     semanticContext?.business_domain,

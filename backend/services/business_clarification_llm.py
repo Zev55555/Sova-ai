@@ -8,7 +8,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from services.llm_client import call_chat_completion, describe_http_error
+from services.llm_client import (
+    call_chat_completion,
+    describe_http_error,
+    has_hosted_llm_default,
+)
 
 
 class ClarificationCard(BaseModel):
@@ -557,6 +561,8 @@ def _read_cards(
 
 def _get_missing_config_reason(request: BusinessClarificationRequest) -> str | None:
     if not request.api_key.strip():
+        if has_hosted_llm_default():
+            return None
         return "API Key 缺失"
     if not request.base_url.strip():
         return "Base URL 缺失"

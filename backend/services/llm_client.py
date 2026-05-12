@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 import socket
 import urllib.error
 import urllib.request
@@ -12,6 +14,30 @@ from pydantic import BaseModel
 
 
 Provider = Literal["openai", "deepseek", "openai-compatible", "custom"]
+
+DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
+DEFAULT_LLM_MODEL = "deepseek-v4-flash"
+
+
+def _load_local_env_files() -> None:
+    for env_path in (
+        Path(__file__).resolve().parents[1] / ".env",
+        Path(__file__).resolve().parents[2] / ".env",
+    ):
+        if not env_path.exists():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8-sig").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            clean_key = key.strip()
+            clean_value = value.strip().strip('"').strip("'")
+            if clean_key and clean_key not in os.environ:
+                os.environ[clean_key] = clean_value
+
+
+_load_local_env_files()
 
 
 class LlmTestRequest(BaseModel):
@@ -34,21 +60,14 @@ def call_chat_completion(
     messages: list[dict[str, str]],
     max_tokens: int = 800,
     temperature: float = 0.2,
-    timeout: int = 30,
+    timeout: int = 120,
     response_format_json: bool = False,
 ) -> dict[str, Any]:
-    clean_api_key = api_key.strip()
-    clean_base_url = base_url.strip().rstrip("/")
-    clean_model = model.strip()
-
-    if not clean_api_key:
-        raise ValueError("API Key 缺失")
-
-    if not clean_base_url:
-        raise ValueError("API Base URL 缺失")
-
-    if not clean_model:
-        raise ValueError("模型名称缺失")
+    clean_api_key, clean_base_url, clean_model = resolve_llm_config(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+    )
 
     model_name_warning = get_model_name_warning(clean_model)
     if model_name_warning:
@@ -90,18 +109,14 @@ def call_chat_completion(
 
 
 def test_llm_connection(request: LlmTestRequest) -> LlmTestResponse:
-    api_key = request.api_key.strip()
-    base_url = request.base_url.strip().rstrip("/")
-    model = request.model.strip()
-
-    if not api_key:
-        raise HTTPException(status_code=400, detail="API Key 缺失，请先填写 API Key。")
-
-    if not base_url:
-        raise HTTPException(status_code=400, detail="API Base URL 缺失，请先填写 Base URL。")
-
-    if not model:
-        raise HTTPException(status_code=400, detail="模型名称缺失，请先填写模型名称。")
+    try:
+        api_key, base_url, model = resolve_llm_config(
+            api_key=request.api_key,
+            base_url=request.base_url,
+            model=request.model,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
 
     model_name_warning = get_model_name_warning(model)
     if model_name_warning:
@@ -148,6 +163,54 @@ def test_llm_connection(request: LlmTestRequest) -> LlmTestResponse:
         detail="连接失败，请检查 API Key、Base URL、模型名称或网络环境。",
     )
 
+
+
+def resolve_llm_config(
+    *,
+    api_key: str = "",
+    base_url: str = "",
+    model: str = "",
+) -> tuple[str, str, str]:
+    clean_api_key = api_key.strip()
+    clean_base_url = base_url.strip().rstrip("/")
+    clean_model = model.strip()
+
+    if clean_api_key:
+        if not clean_base_url:
+            raise ValueError("API Base URL is required")
+        if not clean_model:
+            raise ValueError("Model name is required")
+        return clean_api_key, clean_base_url, clean_model
+
+    hosted_api_key = (
+        os.getenv("DEEPSEEK_API_KEY")
+        or os.getenv("DEFAULT_LLM_API_KEY")
+        or ""
+    ).strip()
+    if not hosted_api_key:
+        raise ValueError("API Key is required")
+
+    hosted_base_url = (
+        os.getenv("DEEPSEEK_BASE_URL")
+        or os.getenv("DEFAULT_LLM_BASE_URL")
+        or DEFAULT_LLM_BASE_URL
+    ).strip().rstrip("/")
+    hosted_model = (
+        os.getenv("DEEPSEEK_MODEL")
+        or os.getenv("DEFAULT_LLM_MODEL")
+        or DEFAULT_LLM_MODEL
+    ).strip()
+    return hosted_api_key, hosted_base_url, hosted_model
+
+
+def has_hosted_llm_default() -> bool:
+    return bool(
+        (
+            os.getenv("DEEPSEEK_API_KEY")
+            or os.getenv("DEFAULT_LLM_API_KEY")
+            or ""
+        ).strip()
+    )
 
 def _raise_http_error(error: urllib.error.HTTPError) -> None:
     detail = describe_http_error(error)

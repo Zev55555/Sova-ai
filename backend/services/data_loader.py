@@ -10,7 +10,12 @@ from uuid import uuid4
 import pandas as pd
 from fastapi import HTTPException, UploadFile
 
-from services.llm_client import call_chat_completion, describe_http_error
+from services.llm_client import (
+    call_chat_completion,
+    describe_http_error,
+    has_hosted_llm_default,
+    resolve_llm_config,
+)
 from services.scenario_profiles import get_scenario_profile, match_scenario_profile
 
 
@@ -63,10 +68,18 @@ def process_uploaded_files(
         business_context,
     )
     supported_analysis = [
-        item["title"] for item in semantic_context.get("supported_analysis", [])
+        title
+        for item in semantic_context.get("supported_analysis", [])
+        if isinstance(item, dict)
+        for title in [str(item.get("title") or item.get("module") or "").strip()]
+        if title
     ]
     missing_requirements = [
-        item["reason"] for item in semantic_context.get("unsupported_analysis", [])
+        reason
+        for item in semantic_context.get("unsupported_analysis", [])
+        if isinstance(item, dict)
+        for reason in [str(item.get("reason") or item.get("title") or "").strip()]
+        if reason
     ]
 
     return {
@@ -1343,6 +1356,9 @@ def _build_irrelevant_modules(context_text: str, scenario_profile: dict | None =
 def _read_llm_settings(context: dict) -> dict | None:
     settings = context.get("llmSettings") or context.get("llm_settings")
     if not isinstance(settings, dict):
+        if has_hosted_llm_default():
+            api_key, base_url, model = resolve_llm_config()
+            return {"api_key": api_key, "base_url": base_url, "model": model}
         return None
 
     api_key = str(settings.get("apiKey") or settings.get("api_key") or "").strip()
@@ -1350,6 +1366,9 @@ def _read_llm_settings(context: dict) -> dict | None:
     model = str(settings.get("model") or "").strip()
 
     if not api_key or not base_url or not model:
+        if not api_key and has_hosted_llm_default():
+            api_key, base_url, model = resolve_llm_config()
+            return {"api_key": api_key, "base_url": base_url, "model": model}
         return None
 
     return {"api_key": api_key, "base_url": base_url, "model": model}
@@ -1405,9 +1424,118 @@ def _validate_semantic_context(parsed: dict[str, Any]) -> dict:
         if key not in parsed:
             raise ValueError(f"semantic_context 返回字段缺失：{key}")
 
+    parsed["primary_metric"] = _normalize_semantic_primary_metric(
+        parsed.get("primary_metric"),
+    )
+    parsed["field_roles"] = _normalize_semantic_field_roles(
+        parsed.get("field_roles"),
+    )
+    parsed["supported_analysis"] = _normalize_semantic_analysis_items(
+        parsed.get("supported_analysis"),
+    )
+    parsed["unsupported_analysis"] = _normalize_semantic_analysis_items(
+        parsed.get("unsupported_analysis"),
+    )
+    parsed["irrelevant_modules"] = _normalize_semantic_modules(
+        parsed.get("irrelevant_modules"),
+    )
     parsed["source"] = "llm"
     parsed["fallback_reason"] = None
     return parsed
+
+
+def _normalize_semantic_primary_metric(value: Any) -> dict:
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "name": str(value.get("name") or "业务指标"),
+        "definition": str(value.get("definition") or "待确认"),
+        "numerator_meaning": str(value.get("numerator_meaning") or "待确认"),
+        "denominator_meaning": str(value.get("denominator_meaning") or "待确认"),
+        "candidate_numerator_fields": _string_list(
+            value.get("candidate_numerator_fields"),
+        ),
+        "candidate_denominator_fields": _string_list(
+            value.get("candidate_denominator_fields"),
+        ),
+    }
+
+
+def _normalize_semantic_field_roles(value: Any) -> list[dict]:
+    items = _list_from_llm_value(value)
+    normalized: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or item.get("name") or "").strip()
+        if not field:
+            continue
+        normalized.append(
+            {
+                "field": field,
+                "original_name": str(item.get("original_name") or field),
+                "semantic_label": str(item.get("semantic_label") or field),
+                "role": str(item.get("role") or "unknown"),
+                "matched_user_need": str(item.get("matched_user_need") or ""),
+                "confidence": str(item.get("confidence") or "medium"),
+                "reason": str(item.get("reason") or ""),
+            }
+        )
+    return normalized
+
+
+def _normalize_semantic_analysis_items(value: Any) -> list[dict]:
+    items = _list_from_llm_value(value)
+    normalized: list[dict] = []
+    for item in items:
+        if isinstance(item, str):
+            title = item.strip()
+            if title:
+                normalized.append({"title": title, "reason": "", "related_fields": []})
+            continue
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("module") or "").strip()
+        reason = str(item.get("reason") or item.get("description") or "").strip()
+        if title or reason:
+            normalized.append(
+                {
+                    "title": title or reason,
+                    "reason": reason,
+                    "related_fields": _string_list(item.get("related_fields")),
+                    "required_fields_or_context": _string_list(
+                        item.get("required_fields_or_context"),
+                    ),
+                }
+            )
+    return normalized
+
+
+def _normalize_semantic_modules(value: Any) -> list[dict]:
+    items = _list_from_llm_value(value)
+    normalized: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        module = str(item.get("module") or item.get("title") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if module or reason:
+            normalized.append({"module": module or reason, "reason": reason})
+    return normalized
+
+
+def _list_from_llm_value(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return list(value.values())
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item).strip() for item in _list_from_llm_value(value) if str(item).strip()]
 
 
 def _extract_llm_content(raw_response: dict[str, Any]) -> str:
