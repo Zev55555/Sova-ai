@@ -40,6 +40,7 @@ default_cors_origins = [
     "http://127.0.0.1:3000",
     "http://[::1]:3000",
     "https://sova-ai-ten.vercel.app",
+    "https://sovaai.filegear-sg.me",
 ]
 extra_cors_origins = [
     origin.strip()
