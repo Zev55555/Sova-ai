@@ -4,7 +4,8 @@
 
 ## 在线体验
 
-👉 **立即使用：** https://sova-ai-ten.vercel.app/
+👉 **海外用户使用：** https://sova-ai-ten.vercel.app/
+👉 **国内用户使用：** sovaai.filegear-sg.me
 
 建议使用流程：
 
