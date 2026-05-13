@@ -2,10 +2,16 @@
 
 > 把一句模糊的业务问题，转成可计算、可复查、可汇报的指标异动分析流程。
 
-## 在线体验
+## 🚀 在线体验 / Live Demo
 
-👉 **海外用户使用：** https://sova-ai-ten.vercel.app/
-👉 **国内用户使用：** sovaai.filegear-sg.me
+你可以根据所在地区选择更稳定的访问入口：
+
+| 使用地区 | 访问入口 | 说明 |
+|---|---|---|
+| 🌍 海外用户 | [sova-ai-ten.vercel.app](https://sova-ai-ten.vercel.app/) | 适合海外网络环境，部署于 Vercel |
+| 🇨🇳 国内用户 | [sovaai.filegear-sg.me](https://sovaai.filegear-sg.me) | 适合中国大陆网络环境，访问更稳定 |
+
+> 如果某个入口访问较慢，建议切换到另一个入口尝试。
 
 建议使用流程：
 
@@ -14,8 +20,7 @@
 3. 填入自己的 API Key、模型名称和 API Base URL
 4. 从 Step 1 开始输入业务指标问题
 5. 上传数据后，按流程生成分析计划、指标计算、可视化分析、证据链和报告草稿
-
-AI 相关功能需要用户自行配置 API Key。
+6. 默认接入DeepSeek-v4-flash模型，但是DeepSeek在长文本和结构化 JSON 分析任务中响应较慢，尤其是上传数据后的字段语义识别。如果你更看重速度和稳定性，建议在这里选择 OpenAI 并使用自己的 OpenAI API。
 
 ---
 
